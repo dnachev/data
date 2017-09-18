@@ -1,19 +1,18 @@
 import Ember from 'ember';
-import { assert, warn } from 'ember-data/-private/debug';
-import Serializer from "ember-data/serializer";
-import coerceId from "ember-data/-private/system/coerce-id";
-import normalizeModelName from "ember-data/-private/system/normalize-model-name";
-import { modelHasAttributeOrRelationshipNamedType } from "ember-data/-private/utils";
-
+import { assert, deprecate, warn } from '@ember/debug';
+import Serializer from "../serializer";
 import {
-  getOwner
-} from 'ember-data/-private/utils';
+  getOwner,
+  coerceId,
+  modelHasAttributeOrRelationshipNamedType,
+  normalizeModelName,
+  errorsArrayToHash,
+  isEnabled
+} from '../-private';
 
-import { errorsArrayToHash } from "ember-data/adapters/errors";
-
-var get = Ember.get;
-var isNone = Ember.isNone;
-var assign = Ember.assign || Ember.merge;
+const get = Ember.get;
+const isNone = Ember.isNone;
+const assign = Ember.assign || Ember.merge;
 
 /**
   Ember Data 2.0 Serializer:
@@ -71,7 +70,7 @@ var assign = Ember.assign || Ember.merge;
     - `normalizeResponse` - entry method to the serializer.
     - `normalizeCreateRecordResponse` - a `normalizeResponse` for a specific operation is called.
     - `normalizeSingleResponse`|`normalizeArrayResponse` - for methods like `createRecord` we expect
-      a single record back, while for methods like `findAll` we expect multiple methods back.
+      a single record back, while for methods like `findAll` we expect multiple records back.
     - `normalize` - `normalizeArray` iterates and calls `normalize` for each of its records while `normalizeSingle`
       calls it once. This is the method you most likely want to subclass.
     - `extractId` | `extractAttributes` | `extractRelationships` - `normalize` delegates to these methods to
@@ -81,7 +80,7 @@ var assign = Ember.assign || Ember.merge;
   @namespace DS
   @extends DS.Serializer
 */
-export default Serializer.extend({
+const JSONSerializer = Serializer.extend({
 
   /**
     The `primaryKey` is used when serializing and deserializing
@@ -188,10 +187,10 @@ export default Serializer.extend({
     let attributes = get(typeClass, 'attributes');
 
     typeClass.eachTransformedAttribute((key, typeClass) => {
-      if (!(key in data)) { return; }
+      if (data[key] === undefined) { return; }
 
-      var transform = this.transformFor(typeClass);
-      var transformMeta = attributes.get(key);
+      let transform = this.transformFor(typeClass);
+      let transformMeta = attributes.get(key);
       data[key] = transform.deserialize(data[key], transformMeta.options);
     });
 
@@ -224,6 +223,7 @@ export default Serializer.extend({
     });
     ```
 
+    @since 1.13.0
     @method normalizeResponse
     @param {DS.Store} store
     @param {DS.Model} primaryModelClass
@@ -258,6 +258,7 @@ export default Serializer.extend({
   },
 
   /**
+    @since 1.13.0
     @method normalizeFindRecordResponse
     @param {DS.Store} store
     @param {DS.Model} primaryModelClass
@@ -271,6 +272,7 @@ export default Serializer.extend({
   },
 
   /**
+    @since 1.13.0
     @method normalizeQueryRecordResponse
     @param {DS.Store} store
     @param {DS.Model} primaryModelClass
@@ -284,6 +286,7 @@ export default Serializer.extend({
   },
 
   /**
+    @since 1.13.0
     @method normalizeFindAllResponse
     @param {DS.Store} store
     @param {DS.Model} primaryModelClass
@@ -297,6 +300,7 @@ export default Serializer.extend({
   },
 
   /**
+    @since 1.13.0
     @method normalizeFindBelongsToResponse
     @param {DS.Store} store
     @param {DS.Model} primaryModelClass
@@ -310,6 +314,7 @@ export default Serializer.extend({
   },
 
   /**
+    @since 1.13.0
     @method normalizeFindHasManyResponse
     @param {DS.Store} store
     @param {DS.Model} primaryModelClass
@@ -323,6 +328,7 @@ export default Serializer.extend({
   },
 
   /**
+    @since 1.13.0
     @method normalizeFindManyResponse
     @param {DS.Store} store
     @param {DS.Model} primaryModelClass
@@ -336,6 +342,7 @@ export default Serializer.extend({
   },
 
   /**
+    @since 1.13.0
     @method normalizeQueryResponse
     @param {DS.Store} store
     @param {DS.Model} primaryModelClass
@@ -349,6 +356,7 @@ export default Serializer.extend({
   },
 
   /**
+    @since 1.13.0
     @method normalizeCreateRecordResponse
     @param {DS.Store} store
     @param {DS.Model} primaryModelClass
@@ -362,6 +370,7 @@ export default Serializer.extend({
   },
 
   /**
+    @since 1.13.0
     @method normalizeDeleteRecordResponse
     @param {DS.Store} store
     @param {DS.Model} primaryModelClass
@@ -375,6 +384,7 @@ export default Serializer.extend({
   },
 
   /**
+    @since 1.13.0
     @method normalizeUpdateRecordResponse
     @param {DS.Store} store
     @param {DS.Model} primaryModelClass
@@ -388,6 +398,7 @@ export default Serializer.extend({
   },
 
   /**
+    @since 1.13.0
     @method normalizeSaveResponse
     @param {DS.Store} store
     @param {DS.Model} primaryModelClass
@@ -401,6 +412,7 @@ export default Serializer.extend({
   },
 
   /**
+    @since 1.13.0
     @method normalizeSingleResponse
     @param {DS.Store} store
     @param {DS.Model} primaryModelClass
@@ -414,6 +426,7 @@ export default Serializer.extend({
   },
 
   /**
+    @since 1.13.0
     @method normalizeArrayResponse
     @param {DS.Store} store
     @param {DS.Model} primaryModelClass
@@ -491,8 +504,9 @@ export default Serializer.extend({
     import DS from 'ember-data';
 
     export default DS.JSONSerializer.extend({
-      normalize: function(typeClass, hash) {
+      normalize(typeClass, hash) {
         var fields = Ember.get(typeClass, 'fields');
+
         fields.forEach(function(field) {
           var payloadField = Ember.String.underscore(field);
           if (field === payloadField) { return; }
@@ -500,6 +514,7 @@ export default Serializer.extend({
           hash[field] = hash[payloadField];
           delete hash[payloadField];
         });
+
         return this._super.apply(this, arguments);
       }
     });
@@ -541,8 +556,8 @@ export default Serializer.extend({
     @return {String}
   */
   extractId(modelClass, resourceHash) {
-    var primaryKey = get(this, 'primaryKey');
-    var id = resourceHash[primaryKey];
+    let primaryKey = get(this, 'primaryKey');
+    let id = resourceHash[primaryKey];
     return coerceId(id);
   },
 
@@ -557,12 +572,12 @@ export default Serializer.extend({
     @return {Object}
   */
   extractAttributes(modelClass, resourceHash) {
-    var attributeKey;
-    var attributes = {};
+    let attributeKey;
+    let attributes = {};
 
     modelClass.eachAttribute((key) => {
       attributeKey = this.keyForAttribute(key, 'deserialize');
-      if (resourceHash.hasOwnProperty(attributeKey)) {
+      if (resourceHash[attributeKey] !== undefined) {
         attributes[key] = resourceHash[attributeKey];
       }
     });
@@ -592,9 +607,27 @@ export default Serializer.extend({
         relationshipHash.id = coerceId(relationshipHash.id);
       }
 
-      const modelClass = this.store.modelFor(relationshipModelName);
+      let modelClass = this.store.modelFor(relationshipModelName);
       if (relationshipHash.type && !modelHasAttributeOrRelationshipNamedType(modelClass)) {
-        relationshipHash.type = this.modelNameFromPayloadKey(relationshipHash.type);
+
+        if (isEnabled("ds-payload-type-hooks")) {
+          let modelName = this.modelNameFromPayloadType(relationshipHash.type);
+          let deprecatedModelNameLookup = this.modelNameFromPayloadKey(relationshipHash.type);
+
+          if (modelName !== deprecatedModelNameLookup && this._hasCustomModelNameFromPayloadKey()) {
+            deprecate("You used modelNameFromPayloadKey to customize how a type is normalized. Use modelNameFromPayloadType instead", false, {
+              id: 'ds.json-serializer.deprecated-type-for-polymorphic-relationship',
+              until: '3.0.0'
+            });
+
+            modelName = deprecatedModelNameLookup;
+          }
+
+          relationshipHash.type = modelName;
+
+        } else {
+          relationshipHash.type = this.modelNameFromPayloadKey(relationshipHash.type);
+        }
       }
       return relationshipHash;
     }
@@ -640,7 +673,7 @@ export default Serializer.extend({
     modelClass.eachRelationship((key, relationshipMeta) => {
       let relationship = null;
       let relationshipKey = this.keyForRelationship(key, relationshipMeta.kind, 'deserialize');
-      if (resourceHash.hasOwnProperty(relationshipKey)) {
+      if (resourceHash[relationshipKey] !== undefined) {
         let data = null;
         let relationshipHash = resourceHash[relationshipKey];
         if (relationshipMeta.kind === 'belongsTo') {
@@ -666,7 +699,7 @@ export default Serializer.extend({
       }
 
       let linkKey = this.keyForLink(key, relationshipMeta.kind);
-      if (resourceHash.links && resourceHash.links.hasOwnProperty(linkKey)) {
+      if (resourceHash.links && resourceHash.links[linkKey] !== undefined) {
         let related = resourceHash.links[linkKey];
         relationship = relationship || {};
         relationship.links = { related };
@@ -685,28 +718,9 @@ export default Serializer.extend({
     @param {String} key
     @return {String} the model's modelName
   */
+  // TODO @deprecated Use modelNameFromPayloadType instead
   modelNameFromPayloadKey(key) {
     return normalizeModelName(key);
-  },
-
-
-  /**
-    @method normalizeAttributes
-    @private
-  */
-  normalizeAttributes(typeClass, hash) {
-    var payloadKey;
-
-    if (this.keyForAttribute) {
-      typeClass.eachAttribute((key) => {
-        payloadKey = this.keyForAttribute(key, 'deserialize');
-        if (key === payloadKey) { return; }
-        if (!hash.hasOwnProperty(payloadKey)) { return; }
-
-        hash[key] = hash[payloadKey];
-        delete hash[payloadKey];
-      });
-    }
   },
 
   /**
@@ -714,13 +728,13 @@ export default Serializer.extend({
     @private
   */
   normalizeRelationships(typeClass, hash) {
-    var payloadKey;
+    let payloadKey;
 
     if (this.keyForRelationship) {
       typeClass.eachRelationship((key, relationship) => {
         payloadKey = this.keyForRelationship(key, relationship.kind, 'deserialize');
         if (key === payloadKey) { return; }
-        if (!hash.hasOwnProperty(payloadKey)) { return; }
+        if (hash[payloadKey] === undefined) { return; }
 
         hash[key] = hash[payloadKey];
         delete hash[payloadKey];
@@ -733,14 +747,15 @@ export default Serializer.extend({
     @private
   */
   normalizeUsingDeclaredMapping(modelClass, hash) {
-    var attrs = get(this, 'attrs');
-    var normalizedKey, payloadKey, key;
+    let attrs = get(this, 'attrs');
+    let normalizedKey;
+    let payloadKey;
 
     if (attrs) {
-      for (key in attrs) {
+      for (let key in attrs) {
         normalizedKey = payloadKey = this._getMappedKey(key, modelClass);
 
-        if (!hash.hasOwnProperty(payloadKey)) { continue; }
+        if (hash[payloadKey] === undefined) { continue; }
 
         if (get(modelClass, 'attributes').has(key)) {
           normalizedKey = this.keyForAttribute(key);
@@ -772,8 +787,8 @@ export default Serializer.extend({
       id: 'ds.serializer.no-mapped-attrs-key'
     });
 
-    var attrs = get(this, 'attrs');
-    var mappedKey;
+    let attrs = get(this, 'attrs');
+    let mappedKey;
     if (attrs && attrs[key]) {
       mappedKey = attrs[key];
       //We need to account for both the { title: 'post_title' } and
@@ -799,7 +814,7 @@ export default Serializer.extend({
     @return {boolean} true if the key can be serialized
   */
   _canSerialize(key) {
-    var attrs = get(this, 'attrs');
+    let attrs = get(this, 'attrs');
 
     return !attrs || !attrs[key] || attrs[key].serialize !== false;
   },
@@ -815,9 +830,30 @@ export default Serializer.extend({
     @return {boolean} true if the key must be serialized
   */
   _mustSerialize(key) {
-    var attrs = get(this, 'attrs');
+    let attrs = get(this, 'attrs');
 
     return attrs && attrs[key] && attrs[key].serialize === true;
+  },
+
+  /**
+    Check if the given hasMany relationship should be serialized
+
+    @method shouldSerializeHasMany
+    @param {DS.Snapshot} snapshot
+    @param {String} key
+    @param {String} relationshipType
+    @return {boolean} true if the hasMany relationship should be serialized
+  */
+
+  shouldSerializeHasMany(snapshot, key, relationship) {
+    if ((this._shouldSerializeHasMany !== JSONSerializer.prototype._shouldSerializeHasMany)) {
+      deprecate('The private method _shouldSerializeHasMany has been promoted to the public API. Please remove the underscore to use the public shouldSerializeHasMany method.', false, {
+        id: 'ds.serializer.private-should-serialize-has-many',
+        until: '3.0.0'
+      });
+    }
+
+    return this._shouldSerializeHasMany(snapshot, key, relationship);
   },
 
   /**
@@ -831,7 +867,7 @@ export default Serializer.extend({
     @return {boolean} true if the hasMany relationship should be serialized
   */
   _shouldSerializeHasMany(snapshot, key, relationship) {
-    var relationshipType = snapshot.type.determineRelationshipType(relationship, this.store);
+    let relationshipType = snapshot.type.determineRelationshipType(relationship, this.store);
     if (this._mustSerialize(key)) {
       return true;
     }
@@ -899,12 +935,12 @@ export default Serializer.extend({
     import DS from 'ember-data';
 
     export default DS.JSONSerializer.extend({
-      serialize: function(snapshot, options) {
+      serialize(snapshot, options) {
         var json = {
           POST_TTL: snapshot.attr('title'),
           POST_BDY: snapshot.attr('body'),
           POST_CMS: snapshot.hasMany('comments', { ids: true })
-        }
+        };
 
         if (options.includeId) {
           json.POST_ID_ = snapshot.id;
@@ -925,12 +961,12 @@ export default Serializer.extend({
     import DS from 'ember-data';
 
     export default DS.JSONSerializer.extend({
-      serialize: function(snapshot, options) {
+      serialize(snapshot, options) {
         var json = {};
 
         snapshot.eachAttribute(function(name) {
           json[serverAttributeName(name)] = snapshot.attr(name);
-        })
+        });
 
         snapshot.eachRelationship(function(name, relationship) {
           if (relationship.kind === 'hasMany') {
@@ -975,8 +1011,8 @@ export default Serializer.extend({
     import DS from 'ember-data';
 
     export default DS.JSONSerializer.extend({
-      serialize: function(snapshot, options) {
-        var json = this._super.apply(this, arguments);
+      serialize(snapshot, options) {
+        var json = this._super(...arguments);
 
         json.subject = json.title;
         delete json.title;
@@ -992,13 +1028,16 @@ export default Serializer.extend({
     @return {Object} json
   */
   serialize(snapshot, options) {
-    var json = {};
+    let json = {};
 
     if (options && options.includeId) {
-      var id = snapshot.id;
-
-      if (id) {
-        json[get(this, 'primaryKey')] = id;
+      if (isEnabled('ds-serialize-id')) {
+        this.serializeId(snapshot, json, get(this, 'primaryKey'));
+      } else {
+        const id = snapshot.id;
+        if (id) {
+          json[get(this, 'primaryKey')] = id;
+        }
       }
     }
 
@@ -1031,7 +1070,7 @@ export default Serializer.extend({
     import DS from 'ember-data';
 
     export default DS.RESTSerializer.extend({
-      serializeIntoHash: function(data, type, snapshot, options) {
+      serializeIntoHash(data, type, snapshot, options) {
         var root = Ember.String.decamelize(type.modelName);
         data[root] = this.serialize(snapshot, options);
       }
@@ -1060,7 +1099,7 @@ export default Serializer.extend({
    import DS from 'ember-data';
 
    export default DS.JSONSerializer.extend({
-     serializeAttribute: function(snapshot, json, key, attributes) {
+     serializeAttribute(snapshot, json, key, attributes) {
        json.attributes = json.attributes || {};
        this._super(snapshot, json.attributes, key, attributes);
      }
@@ -1074,18 +1113,18 @@ export default Serializer.extend({
    @param {Object} attribute
   */
   serializeAttribute(snapshot, json, key, attribute) {
-    var type = attribute.type;
 
     if (this._canSerialize(key)) {
-      var value = snapshot.attr(key);
+      let type = attribute.type;
+      let value = snapshot.attr(key);
       if (type) {
-        var transform = this.transformFor(type);
+        let transform = this.transformFor(type);
         value = transform.serialize(value, attribute.options);
       }
 
       // if provided, use the mapping provided by `attrs` in
       // the serializer
-      var payloadKey =  this._getMappedKey(key, snapshot.type);
+      let payloadKey =  this._getMappedKey(key, snapshot.type);
 
       if (payloadKey === key && this.keyForAttribute) {
         payloadKey = this.keyForAttribute(key, 'serialize');
@@ -1105,9 +1144,8 @@ export default Serializer.extend({
    import DS from 'ember-data';
 
    export default DS.JSONSerializer.extend({
-     serializeBelongsTo: function(snapshot, json, relationship) {
+     serializeBelongsTo(snapshot, json, relationship) {
        var key = relationship.key;
-
        var belongsTo = snapshot.belongsTo(key);
 
        key = this.keyForRelationship ? this.keyForRelationship(key, "belongsTo", "serialize") : key;
@@ -1123,14 +1161,14 @@ export default Serializer.extend({
    @param {Object} relationship
   */
   serializeBelongsTo(snapshot, json, relationship) {
-    var key = relationship.key;
+    let key = relationship.key;
 
     if (this._canSerialize(key)) {
-      var belongsToId = snapshot.belongsTo(key, { id: true });
+      let belongsToId = snapshot.belongsTo(key, { id: true });
 
       // if provided, use the mapping provided by `attrs` in
       // the serializer
-      var payloadKey = this._getMappedKey(key, snapshot.type);
+      let payloadKey = this._getMappedKey(key, snapshot.type);
       if (payloadKey === key && this.keyForRelationship) {
         payloadKey = this.keyForRelationship(key, "belongsTo", "serialize");
       }
@@ -1158,12 +1196,12 @@ export default Serializer.extend({
    import DS from 'ember-data';
 
    export default DS.JSONSerializer.extend({
-     serializeHasMany: function(snapshot, json, relationship) {
+     serializeHasMany(snapshot, json, relationship) {
        var key = relationship.key;
        if (key === 'comments') {
          return;
        } else {
-         this._super.apply(this, arguments);
+         this._super(...arguments);
        }
      }
    });
@@ -1175,14 +1213,18 @@ export default Serializer.extend({
    @param {Object} relationship
   */
   serializeHasMany(snapshot, json, relationship) {
-    var key = relationship.key;
+    let key = relationship.key;
+    let shouldSerializeHasMany = '_shouldSerializeHasMany';
+    if (isEnabled("ds-check-should-serialize-relationships")) {
+      shouldSerializeHasMany = 'shouldSerializeHasMany';
+    }
 
-    if (this._shouldSerializeHasMany(snapshot, key, relationship)) {
-      var hasMany = snapshot.hasMany(key, { ids: true });
+    if (this[shouldSerializeHasMany](snapshot, key, relationship)) {
+      let hasMany = snapshot.hasMany(key, { ids: true });
       if (hasMany !== undefined) {
         // if provided, use the mapping provided by `attrs` in
         // the serializer
-        var payloadKey = this._getMappedKey(key, snapshot.type);
+        let payloadKey = this._getMappedKey(key, snapshot.type);
         if (payloadKey === key && this.keyForRelationship) {
           payloadKey = this.keyForRelationship(key, "hasMany", "serialize");
         }
@@ -1205,15 +1247,16 @@ export default Serializer.extend({
     import DS from 'ember-data';
 
     export default DS.JSONSerializer.extend({
-      serializePolymorphicType: function(snapshot, json, relationship) {
-        var key = relationship.key,
-            belongsTo = snapshot.belongsTo(key);
-        key = this.keyForAttribute ? this.keyForAttribute(key, "serialize") : key;
+      serializePolymorphicType(snapshot, json, relationship) {
+        var key = relationship.key;
+        var belongsTo = snapshot.belongsTo(key);
+
+        key = this.keyForAttribute ? this.keyForAttribute(key, 'serialize') : key;
 
         if (Ember.isNone(belongsTo)) {
-          json[key + "_type"] = null;
+          json[key + '_type'] = null;
         } else {
-          json[key + "_type"] = belongsTo.modelName;
+          json[key + '_type'] = belongsTo.modelName;
         }
       }
     });
@@ -1224,7 +1267,7 @@ export default Serializer.extend({
     @param {Object} json
     @param {Object} relationship
   */
-  serializePolymorphicType: Ember.K,
+  serializePolymorphicType() {},
 
   /**
     `extractMeta` is used to deserialize any meta information in the
@@ -1237,7 +1280,7 @@ export default Serializer.extend({
     import DS from 'ember-data';
 
     export default DS.JSONSerializer.extend({
-      extractMeta: function(store, typeClass, payload) {
+      extractMeta(store, typeClass, payload) {
         if (payload && payload.hasOwnProperty('_pagination')) {
           let meta = payload._pagination;
           delete payload._pagination;
@@ -1253,7 +1296,7 @@ export default Serializer.extend({
     @param {Object} payload
   */
   extractMeta(store, modelClass, payload) {
-    if (payload && payload.hasOwnProperty('meta')) {
+    if (payload && payload['meta'] !== undefined) {
       let meta = payload.meta;
       delete payload.meta;
       return meta;
@@ -1328,7 +1371,7 @@ export default Serializer.extend({
     import DS from 'ember-data';
 
     export default DS.JSONSerializer.extend({
-      extractErrors: function(store, typeClass, payload, id) {
+      extractErrors(store, typeClass, payload, id) {
         if (payload && typeof payload === 'object' && payload._problems) {
           payload = payload._problems;
           this.normalizeErrors(typeClass, payload);
@@ -1353,7 +1396,7 @@ export default Serializer.extend({
 
       typeClass.eachAttribute((name) => {
         let key = this.keyForAttribute(name, 'deserialize');
-        if (key !== name && payload.hasOwnProperty(key)) {
+        if (key !== name && payload[key] !== undefined) {
           payload[name] = payload[key];
           delete payload[key];
         }
@@ -1361,7 +1404,7 @@ export default Serializer.extend({
 
       typeClass.eachRelationship((name) => {
         let key = this.keyForRelationship(name, 'deserialize');
-        if (key !== name && payload.hasOwnProperty(key)) {
+        if (key !== name && payload[key] !== undefined) {
           payload[name] = payload[key];
           delete payload[key];
         }
@@ -1381,7 +1424,7 @@ export default Serializer.extend({
    import DS from 'ember-data';
 
    export default DS.RESTSerializer.extend({
-     keyForAttribute: function(attr, method) {
+     keyForAttribute(attr, method) {
        return Ember.String.underscore(attr).toUpperCase();
      }
    });
@@ -1407,7 +1450,7 @@ export default Serializer.extend({
     import DS from 'ember-data';
 
     export default DS.JSONSerializer.extend({
-      keyForRelationship: function(key, relationship, method) {
+      keyForRelationship(key, relationship, method) {
         return 'rel_' + Ember.String.underscore(key);
       }
     });
@@ -1446,10 +1489,71 @@ export default Serializer.extend({
    @return {DS.Transform} transform
   */
   transformFor(attributeType, skipAssertion) {
-    var transform = getOwner(this).lookup('transform:' + attributeType);
+    let transform = getOwner(this).lookup('transform:' + attributeType);
 
     assert("Unable to find transform for '" + attributeType + "'", skipAssertion || !!transform);
 
     return transform;
   }
 });
+
+if (isEnabled("ds-payload-type-hooks")) {
+
+  JSONSerializer.reopen({
+
+    /**
+      @method modelNameFromPayloadType
+      @public
+      @param {String} type
+      @return {String} the model's modelName
+      */
+    modelNameFromPayloadType(type) {
+      return normalizeModelName(type);
+    },
+
+    _hasCustomModelNameFromPayloadKey() {
+      return this.modelNameFromPayloadKey !== JSONSerializer.prototype.modelNameFromPayloadKey;
+    }
+
+  });
+
+}
+
+if (isEnabled("ds-serialize-id")) {
+
+  JSONSerializer.reopen({
+
+    /**
+     serializeId can be used to customize how id is serialized
+     For example, your server may expect integer datatype of id
+
+     By default the snapshot's id (String) is set on the json hash via json[primaryKey] = snapshot.id.
+
+     ```app/serializers/application.js
+     import DS from 'ember-data';
+
+     export default DS.JSONSerializer.extend({
+     serializeId(snapshot, json, primaryKey) {
+         var id = snapshot.id;
+         json[primaryKey] = parseInt(id, 10);
+       }
+     });
+     ```
+
+     @method serializeId
+     @public
+     @param {DS.Snapshot} snapshot
+     @param {Object} json
+     @param {String} primaryKey
+     */
+    serializeId(snapshot, json, primaryKey) {
+      let id = snapshot.id;
+
+      if (id) {
+        json[primaryKey] = id;
+      }
+    }
+  });
+}
+
+export default JSONSerializer;

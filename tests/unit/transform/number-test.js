@@ -2,12 +2,10 @@ import DS from 'ember-data';
 
 import {module, test} from 'qunit';
 
-/* jshint -W053 */
+module('unit/transform - DS.NumberTransform');
 
-module("unit/transform - DS.NumberTransform");
-
-test("#serialize", function(assert) {
-  var transform = new DS.NumberTransform();
+test('#serialize', function(assert) {
+  let transform = new DS.NumberTransform();
 
   assert.equal(transform.serialize(null), null);
   assert.equal(transform.serialize(undefined), null);
@@ -19,12 +17,12 @@ test("#serialize", function(assert) {
   assert.equal(transform.serialize(-Infinity), null);
 });
 
-test("#deserialize", function(assert) {
-  var transform = new DS.NumberTransform();
+test('#deserialize', function(assert) {
+  let transform = new DS.NumberTransform();
 
   assert.equal(transform.deserialize(null), null);
   assert.equal(transform.deserialize(undefined), null);
-  assert.equal(transform.deserialize("1.1"), 1.1);
+  assert.equal(transform.deserialize('1.1'), 1.1);
   assert.equal(transform.deserialize(1.1), 1.1);
   assert.equal(transform.deserialize(new Number(1.1)), 1.1);
   assert.equal(transform.deserialize(NaN), null);

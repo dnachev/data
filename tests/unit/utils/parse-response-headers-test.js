@@ -1,15 +1,14 @@
-import EmptyObject from 'ember-data/-private/system/empty-object';
-import parseResponseHeaders from 'ember-data/-private/utils/parse-response-headers';
+import { parseResponseHeaders } from 'ember-data/-private';
 import { module, test } from 'qunit';
 
 const CRLF = '\u000d\u000a';
 
 module('unit/adapters/parse-response-headers');
 
-test('returns an EmptyObject when headersString is undefined', function(assert) {
+test('returns an NULL Object when headersString is undefined', function(assert) {
   let headers = parseResponseHeaders(undefined);
 
-  assert.deepEqual(headers, new EmptyObject(), 'EmptyObject is returned');
+  assert.deepEqual(headers, Object.create(null), 'NULL Object is returned');
 });
 
 test('header parsing', function(assert) {
@@ -53,15 +52,26 @@ test('field-value parsing', function(assert) {
   assert.equal(headers['value-with-colon'], 'value with: a colon', 'has correct value when value contains a colon');
   assert.equal(headers['value-with-trailing-whitespace'], 'banana', 'strips trailing whitespace from field-value');
 });
+"\r\nfoo: bar"
 
 test('ignores headers that do not contain a colon', function(assert) {
   let headersString = [
     'Content-Encoding: gzip',
-    'I am ignored because I do not contain a colon'
+    'I am ignored because I do not contain a colon',
+    'apple: pie'
   ].join(CRLF);
 
   let headers = parseResponseHeaders(headersString);
 
   assert.deepEqual(headers['Content-Encoding'], 'gzip', 'parses basic header pair');
+  assert.deepEqual(headers['apple'], 'pie', 'parses basic header pair');
+  assert.equal(Object.keys(headers).length, 2, 'only has the one valid header');
+});
+
+test('tollerate extra new-lines', function(assert) {
+  let headersString = CRLF + 'foo: bar';
+  let headers = parseResponseHeaders(headersString);
+
+  assert.deepEqual(headers['foo'], 'bar', 'parses basic header pair');
   assert.equal(Object.keys(headers).length, 1, 'only has the one valid header');
 });

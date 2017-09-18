@@ -2,6 +2,7 @@ import DS from 'ember-data';
 import Ember from 'ember';
 import setupStore from 'dummy/tests/helpers/store';
 import testInDebug from 'dummy/tests/helpers/test-in-debug';
+import { isEnabled } from 'ember-data/-private';
 import { module, test } from 'qunit';
 
 var get = Ember.get;
@@ -27,6 +28,42 @@ module("integration/references/belongs-to", {
   afterEach() {
     run(env.container, 'destroy');
   }
+});
+
+testInDebug("record#belongsTo asserts when specified relationship doesn't exist", function(assert) {
+  var person;
+  run(function() {
+    person = env.store.push({
+      data: {
+        type: 'person',
+        id: 1
+      }
+    });
+  });
+
+  assert.expectAssertion(function() {
+    run(function() {
+      person.belongsTo("unknown-relationship");
+    });
+  }, "There is no belongsTo relationship named 'unknown-relationship' on a model of modelClass 'person'");
+});
+
+testInDebug("record#belongsTo asserts when the type of the specified relationship isn't the requested one", function(assert) {
+  var family;
+  run(function() {
+    family = env.store.push({
+      data: {
+        type: 'family',
+        id: 1
+      }
+    });
+  });
+
+  assert.expectAssertion(function() {
+    run(function() {
+      family.belongsTo("persons");
+    });
+  }, "You tried to get the 'persons' relationship on a 'family' via record.belongsTo('persons'), but the relationship is of kind 'hasMany'. Use record.hasMany('persons') instead.");
 });
 
 test("record#belongsTo", function(assert) {
@@ -163,7 +200,7 @@ test("push(object)", function(assert) {
   });
 });
 
-test("push(record)", function(assert) {
+testInDebug("push(record)", function(assert) {
   var done = assert.async();
 
   var person, family;
@@ -193,6 +230,10 @@ test("push(record)", function(assert) {
   var familyReference = person.belongsTo('family');
 
   run(function() {
+    if (isEnabled('ds-overhaul-references')) {
+      assert.expectDeprecation("BelongsToReference#push(DS.Model) is deprecated. Update relationship via `model.set('relationshipName', value)` instead.");
+    }
+
     familyReference.push(family).then(function(record) {
       assert.ok(Family.detectInstance(record), "push resolves with the referenced record");
       assert.equal(get(record, 'name'), "Coreleone", "name is set");
@@ -249,8 +290,11 @@ test("push(promise)", function(assert) {
   });
 });
 
-testInDebug("push(record) asserts for invalid type", function(assert) {
+testInDebug("push(record) asserts for invalid modelClass", function(assert) {
   var person, anotherPerson;
+  if (isEnabled('ds-overhaul-references')) {
+    assert.expectDeprecation('BelongsToReference#push(DS.Model) is deprecated. Update relationship via `model.set(\'relationshipName\', value)` instead.')
+  }
   run(function() {
     person = env.store.push({
       data: {
@@ -277,14 +321,17 @@ testInDebug("push(record) asserts for invalid type", function(assert) {
     run(function() {
       familyReference.push(anotherPerson);
     });
-  }, "You cannot add a record of type 'person' to the 'person.family' relationship (only 'family' allowed)");
+  }, "You cannot add a record of modelClass 'person' to the 'person.family' relationship (only 'family' allowed)");
 });
 
-test("push(record) works with polymorphic type", function(assert) {
+testInDebug("push(record) works with polymorphic modelClass", function(assert) {
   var done = assert.async();
 
   var person, mafiaFamily;
 
+  if (isEnabled('ds-overhaul-references')) {
+    assert.expectDeprecation('BelongsToReference#push(DS.Model) is deprecated. Update relationship via `model.set(\'relationshipName\', value)` instead.')
+  }
   env.registry.register('model:mafia-family', Family.extend());
 
   run(function() {
@@ -363,7 +410,11 @@ test("load() fetches the record", function(assert) {
 
   env.adapter.findRecord = function(store, type, id) {
     return Ember.RSVP.resolve({
-      id: 1, name: "Coreleone"
+      data: {
+        id: 1,
+        type: 'family',
+        attributes: { name: "Coreleone" }
+      }
     });
   };
 
@@ -400,7 +451,11 @@ test("load() fetches link when remoteType is link", function(assert) {
     assert.equal(link, "/families/1");
 
     return Ember.RSVP.resolve({
-      id: 1, name: "Coreleone"
+      data: {
+        id: 1,
+        type: 'family',
+        attributes: { name: "Coreleone" }
+      }
     });
   };
 
@@ -440,7 +495,11 @@ test("reload() - loads the record when not yet loaded", function(assert) {
     assert.equal(count, 1);
 
     return Ember.RSVP.resolve({
-      id: 1, name: "Coreleone"
+      data: {
+        id: 1,
+        type: 'family',
+        attributes: { name: "Coreleone" }
+      }
     });
   };
 
@@ -479,7 +538,11 @@ test("reload() - reloads the record when already loaded", function(assert) {
     assert.equal(count, 1);
 
     return Ember.RSVP.resolve({
-      id: 1, name: "Coreleone"
+      data: {
+        id: 1,
+        type: 'family',
+        attributes: { name: "Coreleone" }
+      }
     });
   };
 
@@ -522,7 +585,11 @@ test("reload() - uses link to reload record", function(assert) {
     assert.equal(link, "/families/1");
 
     return Ember.RSVP.resolve({
-      id: 1, name: "Coreleone"
+      data: {
+        id: 1,
+        type: 'family',
+        attributes: { name: "Coreleone" }
+      }
     });
   };
 

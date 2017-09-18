@@ -1,8 +1,9 @@
 import {singularize} from 'ember-inflector';
-import normalizeModelName from 'ember-data/-private/system/normalize-model-name';
+import normalizeModelName from './normalize-model-name';
+import { DEBUG } from '@glimmer/env';
 
 export function typeForRelationshipMeta(meta) {
-  var modelName;
+  let modelName;
 
   modelName = meta.type || meta.key;
   if (meta.kind === 'hasMany') {
@@ -12,12 +13,19 @@ export function typeForRelationshipMeta(meta) {
 }
 
 export function relationshipFromMeta(meta) {
-  return {
+  let result = {
     key:  meta.key,
     kind: meta.kind,
     type: typeForRelationshipMeta(meta),
     options:    meta.options,
+    name: meta.name,
     parentType: meta.parentType,
     isRelationship: true
   };
+
+  if (DEBUG) {
+    result.parentType = meta.parentType;
+  }
+
+  return result;
 }

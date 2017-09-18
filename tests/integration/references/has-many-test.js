@@ -1,6 +1,7 @@
 import DS from 'ember-data';
 import Ember from 'ember';
 import setupStore from 'dummy/tests/helpers/store';
+import { isEnabled } from 'ember-data/-private';
 import testInDebug from 'dummy/tests/helpers/test-in-debug';
 import { module, test } from 'qunit';
 
@@ -26,6 +27,42 @@ module("integration/references/has-many", {
   afterEach() {
     run(env.container, 'destroy');
   }
+});
+
+testInDebug("record#hasMany asserts when specified relationship doesn't exist", function(assert) {
+  var family;
+  run(function() {
+    family = env.store.push({
+      data: {
+        type: 'family',
+        id: 1
+      }
+    });
+  });
+
+  assert.expectAssertion(function() {
+    run(function() {
+      family.hasMany("unknown-relationship");
+    });
+  }, "There is no hasMany relationship named 'unknown-relationship' on a model of modelClass 'family'");
+});
+
+testInDebug("record#hasMany asserts when the type of the specified relationship isn't the requested one", function(assert) {
+  var person;
+  run(function() {
+    person = env.store.push({
+      data: {
+        type: 'person',
+        id: 1
+      }
+    });
+  });
+
+  assert.expectAssertion(function() {
+    run(function() {
+      person.hasMany("family");
+    });
+  }, "You tried to get the 'family' relationship on a 'person' via record.hasMany('family'), but the relationship is of kind 'belongsTo'. Use record.belongsTo('family') instead.");
 });
 
 test("record#hasMany", function(assert) {
@@ -126,7 +163,7 @@ test("HasManyReference#meta() returns the most recent meta for the relationship"
   assert.deepEqual(personsReference.meta(), { foo: true });
 });
 
-test("push(array)", function(assert) {
+testInDebug("push(array)", function(assert) {
   var done = assert.async();
 
   var family;
@@ -149,6 +186,10 @@ test("push(array)", function(assert) {
 
   var personsReference = family.hasMany('persons');
 
+  if (isEnabled('ds-overhaul-references')) {
+    assert.expectDeprecation("HasManyReference#push(array) is deprecated. Push a JSON-API document instead.");
+  }
+
   run(function() {
     var data = [
       { data: { type: 'person', id: 1, attributes: { name: "Vito" } } },
@@ -166,7 +207,7 @@ test("push(array)", function(assert) {
   });
 });
 
-test("push(array) works with polymorphic type", function(assert) {
+testInDebug("push(array) works with polymorphic type", function(assert) {
   var done = assert.async();
 
   env.registry.register('model:mafia-boss', Person.extend());
@@ -184,11 +225,15 @@ test("push(array) works with polymorphic type", function(assert) {
   var personsReference = family.hasMany('persons');
 
   run(() => {
-    var data = {
-      data: [
-        { data: { type: 'mafia-boss', id: 1, attributes: { name: "Vito" } } }
-      ]
-    };
+    var data = [
+      { data: { type: 'mafia-boss', id: 1, attributes: { name: "Vito" } } }
+    ];
+
+    if (isEnabled('ds-overhaul-references')) {
+      assert.expectDeprecation("HasManyReference#push(array) is deprecated. Push a JSON-API document instead.");
+    } else {
+      assert.expectNoDeprecation();
+    }
 
     personsReference.push(data).then(function(records) {
       assert.ok(records instanceof DS.ManyArray, "push resolves with the referenced records");
@@ -213,20 +258,24 @@ testInDebug("push(array) asserts polymorphic type", function(assert) {
 
   var personsReference = family.hasMany('persons');
 
+  if (isEnabled('ds-overhaul-references')) {
+    assert.expectDeprecation("HasManyReference#push(array) is deprecated. Push a JSON-API document instead.");
+  } else {
+    assert.expectNoDeprecation();
+  }
+
   assert.expectAssertion(() => {
     run(() => {
-      var data = {
-        data: [
-          { data: { type: 'family', id: 1 } }
-        ]
-      };
+      var data = [
+        { data: { type: 'family', id: 1 } }
+      ];
 
       personsReference.push(data);
     });
-  }, "You cannot add a record of type 'family' to the 'family.persons' relationship (only 'person' allowed)");
+  }, "You cannot add a record of modelClass 'family' to the 'family.persons' relationship (only 'person' allowed)");
 });
 
-test("push(object) supports JSON-API payload", function(assert) {
+testInDebug("push(object) supports legacy, non-JSON-API-conform payload", function(assert) {
   var done = assert.async();
 
   var family;
@@ -250,14 +299,20 @@ test("push(object) supports JSON-API payload", function(assert) {
   var personsReference = family.hasMany('persons');
 
   run(function() {
-    var data = {
+    var payload = {
       data: [
         { data: { type: 'person', id: 1, attributes: { name: "Vito" } } },
         { data: { type: 'person', id: 2, attributes: { name: "Michael" } } }
       ]
     };
 
-    personsReference.push(data).then(function(records) {
+    if (isEnabled('ds-overhaul-references')) {
+      assert.expectDeprecation("HasManyReference#push() expects a valid JSON-API document.");
+    } else {
+      assert.expectNoDeprecation();
+    }
+
+    personsReference.push(payload).then(function(records) {
       assert.ok(records instanceof DS.ManyArray, "push resolves with the referenced records");
       assert.equal(get(records, 'length'), 2);
       assert.equal(records.objectAt(0).get('name'), "Vito");
@@ -267,6 +322,110 @@ test("push(object) supports JSON-API payload", function(assert) {
     });
   });
 });
+
+if (isEnabled('ds-overhaul-references')) {
+  test("push(object) supports JSON-API payload", function(assert) {
+    var done = assert.async();
+
+    var family;
+    run(function() {
+      family = env.store.push({
+        data: {
+          type: 'family',
+          id: 1,
+          relationships: {
+            persons: {
+              data: [
+                { type: 'person', id: 1 },
+                { type: 'person', id: 2 }
+              ]
+            }
+          }
+        }
+      });
+    });
+
+    var personsReference = family.hasMany('persons');
+
+    run(function() {
+      var payload = {
+        data: [
+          { type: 'person', id: 1, attributes: { name: "Vito" } },
+          { type: 'person', id: 2, attributes: { name: "Michael" } }
+        ]
+      };
+
+      personsReference.push(payload).then(function(records) {
+        assert.ok(records instanceof DS.ManyArray, "push resolves with the referenced records");
+        assert.equal(get(records, 'length'), 2);
+        assert.equal(records.objectAt(0).get('name'), "Vito");
+        assert.equal(records.objectAt(1).get('name'), "Michael");
+
+        done();
+      });
+    });
+  });
+
+  test("push(object) works with polymorphic type", function(assert) {
+    var done = assert.async();
+
+    env.registry.register('model:mafia-boss', Person.extend());
+
+    var family;
+    run(function() {
+      family = env.store.push({
+        data: {
+          type: 'family',
+          id: 1
+        }
+      });
+    });
+
+    var personsReference = family.hasMany('persons');
+
+    run(() => {
+      var payload = {
+        data: [
+          { type: 'mafia-boss', id: 1, attributes: { name: "Vito" } }
+        ]
+      };
+
+      personsReference.push(payload).then(function(records) {
+        assert.ok(records instanceof DS.ManyArray, "push resolves with the referenced records");
+        assert.equal(get(records, 'length'), 1);
+        assert.equal(records.objectAt(0).get('name'), "Vito");
+
+        done();
+      });
+    });
+  });
+
+  test("push(object) asserts polymorphic type", function(assert) {
+    var family;
+    run(function() {
+      family = env.store.push({
+        data: {
+          type: 'family',
+          id: 1
+        }
+      });
+    });
+
+    var personsReference = family.hasMany('persons');
+
+    assert.expectAssertion(() => {
+      run(() => {
+        var payload = {
+          data: [
+            { type: 'family', id: 1 }
+          ]
+        };
+
+        personsReference.push(payload);
+      });
+    }, "You cannot add a record of modelClass 'family' to the 'family.persons' relationship (only 'person' allowed)");
+  });
+}
 
 test("push(promise)", function(assert) {
   var done = assert.async();
@@ -296,11 +455,23 @@ test("push(promise)", function(assert) {
   assert.ok(push.then, 'HasManyReference.push returns a promise');
 
   run(function() {
-    var data = [
-      { data: { type: 'person', id: 1, attributes: { name: "Vito" } } },
-      { data: { type: 'person', id: 2, attributes: { name: "Michael" } } }
-    ];
-    deferred.resolve(data);
+    var payload = {
+      data: [
+        { data: { type: 'person', id: 1, attributes: { name: "Vito" } } },
+        { data: { type: 'person', id: 2, attributes: { name: "Michael" } } }
+      ]
+    };
+
+    if (isEnabled('ds-overhaul-references')) {
+      payload = {
+        data: [
+          { type: 'person', id: 1, attributes: { name: "Vito" } },
+          { type: 'person', id: 2, attributes: { name: "Michael" } }
+        ]
+      };
+    }
+
+    deferred.resolve(payload);
   });
 
   run(function() {
@@ -359,17 +530,65 @@ test("value() returns the referenced records when all records are loaded", funct
     env.store.push({ data: { type: 'person', id: 2, attributes: { name: "Michael" } } });
   });
 
-  var personsReference = family.hasMany('persons');
-  var records = personsReference.value();
-  assert.equal(get(records, 'length'), 2);
-  assert.equal(records.isEvery('isLoaded'), true);
+  run(function() {
+    var personsReference = family.hasMany('persons');
+    var records = personsReference.value();
+    assert.equal(get(records, 'length'), 2);
+    assert.equal(records.isEvery('isLoaded'), true);
+  });
+});
+
+test("value() returns an empty array when the reference is loaded and empty", function(assert) {
+  var family;
+  run(function() {
+    family = env.store.push({
+      data: {
+        type: 'family',
+        id: 1,
+        relationships: {
+          persons: {
+            data: []
+          }
+        }
+      }
+    });
+  });
+
+  run(function() {
+    var personsReference = family.hasMany('persons');
+    var records = personsReference.value();
+    assert.equal(get(records, 'length'), 0);
+  });
+});
+
+test("_isLoaded() returns an true array when the reference is loaded and empty", function(assert) {
+  var family;
+  run(function() {
+    family = env.store.push({
+      data: {
+        type: 'family',
+        id: 1,
+        relationships: {
+          persons: {
+            data: []
+          }
+        }
+      }
+    });
+  });
+
+  run(function() {
+    var personsReference = family.hasMany('persons');
+    var isLoaded = personsReference._isLoaded();
+    assert.equal(isLoaded, true);
+  });
 });
 
 test("load() fetches the referenced records", function(assert) {
   var done = assert.async();
 
   env.adapter.findMany = function(store, type, id) {
-    return Ember.RSVP.resolve([{ id: 1, name: "Vito" }, { id: 2, name: "Michael" }]);
+    return Ember.RSVP.resolve({ data: [{ id: 1, type: 'person', attributes: { name: "Vito" } }, { id: 2, type: 'person', attributes: { name: "Michael" } }] });
   };
 
   var family;
@@ -410,7 +629,7 @@ test("load() fetches link when remoteType is link", function(assert) {
   env.adapter.findHasMany = function(store, snapshot, link) {
     assert.equal(link, "/families/1/persons");
 
-    return Ember.RSVP.resolve([{ id: 1, name: "Vito" }, { id: 2, name: "Michael" }]);
+    return Ember.RSVP.resolve({ data: [{ id: 1, type: 'person', attributes: { name: "Vito" } }, { id: 2, type: 'person', attributes: { name: "Michael" } }] });
   };
 
   var family;
@@ -439,6 +658,40 @@ test("load() fetches link when remoteType is link", function(assert) {
       assert.equal(records.objectAt(1).get('name'), "Michael");
 
       done();
+    });
+  });
+});
+
+test("load() fetches link when remoteType is link but an empty set of records is returned", function(assert) {
+  env.adapter.findHasMany = function(store, snapshot, link) {
+    assert.equal(link, "/families/1/persons");
+
+    return Ember.RSVP.resolve({ data: [] });
+  };
+
+  let family;
+  run(() => {
+    family = env.store.push({
+      data: {
+        type: 'family',
+        id: 1,
+        relationships: {
+          persons: {
+            links: { related: '/families/1/persons' }
+          }
+        }
+      }
+    });
+  });
+
+  let personsReference = family.hasMany('persons');
+  assert.equal(personsReference.remoteType(), "link");
+
+  return run(() => {
+    return personsReference.load().then((records) => {
+      assert.ok(records instanceof DS.ManyArray, "push resolves with the referenced records");
+      assert.equal(get(records, 'length'), 0);
+      assert.equal(get(personsReference.value(), 'length'), 0);
     });
   });
 });
@@ -484,7 +737,7 @@ test("load() - only a single find is triggered", function(assert) {
   });
 
   run(function() {
-    deferred.resolve([{ id: 1, name: "Vito" }, { id: 2, name: "Michael" }]);
+    deferred.resolve({ data: [{ id: 1, type: 'person', attributes: { name: "Vito" } }, { id: 2, type: 'person', attributes: { name: "Michael" } }] });
   });
 
   run(function() {
@@ -500,10 +753,7 @@ test("reload()", function(assert) {
   var done = assert.async();
 
   env.adapter.findMany = function(store, type, id) {
-    return Ember.RSVP.resolve([
-      { id: 1, name: "Vito Coreleone" },
-      { id: 2, name: "Michael Coreleone" }
-    ]);
+    return Ember.RSVP.resolve({ data: [{ id: 1, type: 'person', attributes: { name: "Vito Coreleone" } }, { id: 2, type: 'person', attributes: { name: "Michael Coreleone" } }] });
   };
 
   var family;
@@ -549,12 +799,9 @@ test("reload() fetches link when remoteType is link", function(assert) {
     assert.equal(link, "/families/1/persons");
 
     if (count === 1) {
-      return Ember.RSVP.resolve([{ id: 1, name: "Vito" }, { id: 2, name: "Michael" }]);
+      return Ember.RSVP.resolve({ data: [{ id: 1, type: 'person', attributes: { name: "Vito" } }, { id: 2, type: 'person', attributes: { name: "Michael" } }] });
     } else {
-      return Ember.RSVP.resolve([
-          { id: 1, name: "Vito Coreleone" },
-          { id: 2, name: "Michael Coreleone" }
-      ]);
+      return Ember.RSVP.resolve({ data: [{ id: 1, type: 'person', attributes: { name: "Vito Coreleone" } }, { id: 2, type: 'person', attributes: { name: "Michael Coreleone" } }] });
     }
   };
 

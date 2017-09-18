@@ -7,6 +7,8 @@ var modifyPackages = blueprintHelpers.modifyPackages;
 var chai = require('ember-cli-blueprint-test-helpers/chai');
 var expect = chai.expect;
 
+var generateFakePackageManifest = require('../helpers/generate-fake-package-manifest');
+
 describe('Acceptance: generate and destroy model blueprints', function() {
   setupTestHooks(this);
 
@@ -16,12 +18,8 @@ describe('Acceptance: generate and destroy model blueprints', function() {
     return emberNew()
       .then(() => emberGenerateDestroy(args, _file => {
         expect(_file('app/models/foo.js'))
-          .to.contain('import Model from \'ember-data/model\';')
-          .to.contain('export default Model.extend(')
-          .to.contain('// import attr from \'ember-data/attr\';')
-          .to.contain('// import { belongsTo, hasMany } from \'ember-data/relationships\';')
-          .to.not.contain('import { belongsTo } from \'ember-data/relationships\';')
-          .to.not.contain('import { hasMany } from \'ember-data/relationships\';');
+          .to.contain('import DS from \'ember-data\';')
+          .to.contain('export default DS.Model.extend(')
 
         expect(_file('tests/unit/models/foo-test.js'))
           .to.contain('moduleForModel(\'foo\'');
@@ -45,20 +43,16 @@ describe('Acceptance: generate and destroy model blueprints', function() {
     return emberNew()
       .then(() => emberGenerateDestroy(args, _file => {
         expect(_file('app/models/foo.js'))
-          .to.contain('import Model from \'ember-data/model\';')
-          .to.contain('import attr from \'ember-data/attr\';')
-          .to.contain('export default Model.extend(')
-          .to.contain('misc: attr()')
-          .to.contain('skills: attr(\'array\')')
-          .to.contain('isActive: attr(\'boolean\')')
-          .to.contain('birthday: attr(\'date\')')
-          .to.contain('someObject: attr(\'object\')')
-          .to.contain('age: attr(\'number\')')
-          .to.contain('name: attr(\'string\')')
-          .to.contain('customAttr: attr(\'custom-transform\')')
-          .to.contain('// import { belongsTo, hasMany } from \'ember-data/relationships\';')
-          .to.not.contain('import { belongsTo } from \'ember-data/relationships\';')
-          .to.not.contain('import { hasMany } from \'ember-data/relationships\';');
+          .to.contain('import DS from \'ember-data\';')
+          .to.contain('export default DS.Model.extend(')
+          .to.contain('misc: DS.attr()')
+          .to.contain('skills: DS.attr(\'array\')')
+          .to.contain('isActive: DS.attr(\'boolean\')')
+          .to.contain('birthday: DS.attr(\'date\')')
+          .to.contain('someObject: DS.attr(\'object\')')
+          .to.contain('age: DS.attr(\'number\')')
+          .to.contain('name: DS.attr(\'string\')')
+          .to.contain('customAttr: DS.attr(\'custom-transform\')')
 
         expect(_file('tests/unit/models/foo-test.js'))
           .to.contain('moduleForModel(\'foo\'');
@@ -71,14 +65,10 @@ describe('Acceptance: generate and destroy model blueprints', function() {
     return emberNew()
       .then(() => emberGenerateDestroy(args, _file => {
         expect(_file('app/models/comment.js'))
-          .to.contain('import Model from \'ember-data/model\';')
-          .to.contain('import { belongsTo } from \'ember-data/relationships\';')
-          .to.contain('export default Model.extend(')
-          .to.contain('post: belongsTo(\'post\')')
-          .to.contain('author: belongsTo(\'user\')')
-          .to.contain('// import attr from \'ember-data/attr\';')
-          .to.contain('// import { hasMany } from \'ember-data/relationships\';')
-          .to.not.contain('import { belongsTo, hasMany } from \'ember-data/relationships\';');
+          .to.contain('import DS from \'ember-data\';')
+          .to.contain('export default DS.Model.extend(')
+          .to.contain('post: DS.belongsTo(\'post\')')
+          .to.contain('author: DS.belongsTo(\'user\')')
 
         expect(_file('tests/unit/models/comment-test.js'))
           .to.contain('moduleForModel(\'comment\'')
@@ -92,31 +82,14 @@ describe('Acceptance: generate and destroy model blueprints', function() {
     return emberNew()
       .then(() => emberGenerateDestroy(args, _file => {
         expect(_file('app/models/post.js'))
-          .to.contain('import Model from \'ember-data/model\';')
-          .to.contain('import { hasMany } from \'ember-data/relationships\';')
-          .to.contain('export default Model.extend(')
-          .to.contain('comments: hasMany(\'comment\')')
-          .to.contain('otherComments: hasMany(\'comment\')')
-          .to.contain('// import attr from \'ember-data/attr\';')
-          .to.contain('// import { belongsTo } from \'ember-data/relationships\';')
-          .to.not.contain('import { belongsTo, hasMany } from \'ember-data/relationships\';');
+          .to.contain('import DS from \'ember-data\';')
+          .to.contain('export default DS.Model.extend(')
+          .to.contain('comments: DS.hasMany(\'comment\')')
+          .to.contain('otherComments: DS.hasMany(\'comment\')')
 
         expect(_file('tests/unit/models/post-test.js'))
           .to.contain('moduleForModel(\'post\'')
           .to.contain('needs: [\'model:comment\']');
-      }));
-  });
-
-  it('model with belongsTo and hasMany has both imports', function() {
-    var args = ['model', 'post', 'comments:has-many', 'user:belongs-to'];
-
-    return emberNew()
-      .then(() => emberGenerateDestroy(args, _file => {
-        expect(_file('app/models/post.js'))
-          .to.contain('import { belongsTo, hasMany } from \'ember-data/relationships\';')
-          .to.contain('// import attr from \'ember-data/attr\';')
-          .to.not.contain('import { belongsTo } from \'ember-data/relationships\';')
-          .to.not.contain('import { hasMany } from \'ember-data/relationships\';');
       }));
   });
 
@@ -138,10 +111,30 @@ describe('Acceptance: generate and destroy model blueprints', function() {
         {name: 'ember-cli-qunit', delete: true},
         {name: 'ember-cli-mocha', dev: true}
       ]))
+      .then(() => generateFakePackageManifest('ember-cli-mocha', '0.11.0'))
       .then(() => emberGenerateDestroy(args, _file => {
         expect(_file('tests/unit/models/foo-test.js'))
           .to.contain('import { describeModel, it } from \'ember-mocha\';')
           .to.contain('describeModel(\n  \'foo\',')
+          .to.contain('expect(model).to.be.ok;');
+      }));
+  });
+
+  it('model-test for mocha v0.12+', function() {
+    var args = ['model-test', 'foo'];
+
+    return emberNew()
+      .then(() => modifyPackages([
+        {name: 'ember-cli-qunit', delete: true},
+        {name: 'ember-cli-mocha', dev: true}
+      ]))
+      .then(() => generateFakePackageManifest('ember-cli-mocha', '0.12.0'))
+      .then(() => emberGenerateDestroy(args, _file => {
+        expect(_file('tests/unit/models/foo-test.js'))
+          .to.contain('import { describe, it } from \'mocha\';')
+          .to.contain('import { setupModelTest } from \'ember-mocha\';')
+          .to.contain('describe(\'Unit | Model | foo\', function() {')
+          .to.contain('setupModelTest(\'foo\',')
           .to.contain('expect(model).to.be.ok;');
       }));
   });

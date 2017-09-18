@@ -4,6 +4,9 @@
 /node-tests
 /tests
 /tmp
+/benchmarks
+/bin
+/docs
 
 **/.gitkeep
 .appveyor.yml
@@ -11,9 +14,9 @@
 .editorconfig
 .ember-cli
 .gitignore
-.jshintrc
-.travis.yml
+.eslintrc.js
 .watchmanconfig
+.travis.yml
 bower.json
 ember-cli-build.js
 testem.js

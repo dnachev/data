@@ -5,21 +5,32 @@ import testInDebug from 'dummy/tests/helpers/test-in-debug';
 import {module, test} from 'qunit';
 
 import DS from 'ember-data';
-import isEnabled from 'ember-data/-private/features';
+import { isEnabled } from 'ember-data/-private';
 
-var store, env;
+let store, env;
 
-var Person = DS.Model.extend({
+const Person = DS.Model.extend({
   name: DS.attr('string'),
   cars: DS.hasMany('car', { async: false })
 });
 
-var run = Ember.run;
+Person.reopenClass({
+  toString() {
+    return 'Person'
+  }
+});
 
-var Car = DS.Model.extend({
+const { run } = Ember;
+const Car = DS.Model.extend({
   make: DS.attr('string'),
   model: DS.attr('string'),
   person: DS.belongsTo('person', { async: false })
+});
+
+Car.reopenClass({
+  toString() {
+    return 'Car';
+  }
 });
 
 function initializeStore(adapter) {
@@ -35,16 +46,20 @@ function initializeStore(adapter) {
 module("integration/store - destroy", {
   beforeEach() {
     initializeStore(DS.Adapter.extend());
+  },
+  afterEach() {
+    store = null;
+    env = null;
   }
 });
 
 function tap(obj, methodName, callback) {
-  var old = obj[methodName];
+  let old = obj[methodName];
 
-  var summary = { called: [] };
+  let summary = { called: [] };
 
   obj[methodName] = function() {
-    var result = old.apply(obj, arguments);
+    let result = old.apply(obj, arguments);
     if (callback) {
       callback.apply(obj, arguments);
     }
@@ -59,10 +74,10 @@ test("destroying record during find doesn't cause error", function(assert) {
   assert.expect(0);
   let done = assert.async();
 
-  var TestAdapter = DS.Adapter.extend({
+  let TestAdapter = DS.Adapter.extend({
     findRecord(store, type, id, snapshot) {
-      return new Ember.RSVP.Promise(function(resolve, reject) {
-        Ember.run.next(function() {
+      return new Ember.RSVP.Promise((resolve, reject) => {
+        Ember.run.next(() => {
           store.unloadAll(type.modelName);
           reject();
         });
@@ -72,19 +87,17 @@ test("destroying record during find doesn't cause error", function(assert) {
 
   initializeStore(TestAdapter);
 
-  var type = "car";
-  var id = 1;
+  let type = "car";
+  let id = 1;
 
-  run(function() {
-    store.findRecord(type, id).then(done, done);
-  });
+  return run(() => store.findRecord(type, id).then(done, done));
 });
 
 test("find calls do not resolve when the store is destroyed", function(assert) {
   assert.expect(0);
   let done = assert.async();
 
-  var TestAdapter = DS.Adapter.extend({
+  let TestAdapter = DS.Adapter.extend({
     findRecord(store, type, id, snapshot) {
       store.destroy();
       Ember.RSVP.resolve(null);
@@ -94,8 +107,8 @@ test("find calls do not resolve when the store is destroyed", function(assert) {
   initializeStore(TestAdapter);
 
 
-  var type = "car";
-  var id = 1;
+  let type = "car";
+  let id = 1;
 
   store.push = function() {
     Ember.assert("The test should have destroyed the store by now", store.get("isDestroyed"));
@@ -103,20 +116,15 @@ test("find calls do not resolve when the store is destroyed", function(assert) {
     throw new Error("We shouldn't be pushing data into the store when it is destroyed");
   };
 
-  run(function() {
-    store.findRecord(type, id);
-  });
+  run(() => store.findRecord(type, id));
 
-  setTimeout(function() {
-    done();
-  }, 500);
+  setTimeout(() => done(), 500);
 });
 
-
 test("destroying the store correctly cleans everything up", function(assert) {
-  var car, person;
+  let car, person;
   env.adapter.shouldBackgroundReloadRecord = () => false;
-  run(function() {
+  run(() => {
     store.push({
       data: [{
         type: 'car',
@@ -149,34 +157,34 @@ test("destroying the store correctly cleans everything up", function(assert) {
     person = store.peekRecord('person', 1);
   });
 
-  var personWillDestroy = tap(person, 'willDestroy');
-  var carWillDestroy = tap(car, 'willDestroy');
-  var carsWillDestroy = tap(car.get('person.cars'), 'willDestroy');
+  let personWillDestroy = tap(person, 'willDestroy');
+  let carWillDestroy = tap(car, 'willDestroy');
+  let carsWillDestroy = run(() => tap(car.get('person.cars'), 'willDestroy'));
 
   env.adapter.query = function() {
-    return [{
-      id: 2,
-      name: 'Yehuda'
-    }];
+    return {
+      data: [
+        {
+          id: 2,
+          type: 'person',
+          attributes: { name: 'Yehuda' }
+        }
+      ]
+    };
   };
-  var adapterPopulatedPeople, filterdPeople;
 
-  run(function() {
-    adapterPopulatedPeople = store.query('person', {
+  let adapterPopulatedPeople =run(() => {
+    return adapterPopulatedPeople = store.query('person', {
       someCrazy: 'query'
     });
   });
 
-  run(function() {
-    filterdPeople = store.filter('person', function() { return true; });
-  });
+  let filterdPeople = run(() => store.filter('person', () => true));
 
-  var filterdPeopleWillDestroy = tap(filterdPeople.get('content'), 'willDestroy');
-  var adapterPopulatedPeopleWillDestroy = tap(adapterPopulatedPeople.get('content'), 'willDestroy');
+  let filterdPeopleWillDestroy = tap(filterdPeople.get('content'), 'willDestroy');
+  let adapterPopulatedPeopleWillDestroy = tap(adapterPopulatedPeople.get('content'), 'willDestroy');
 
-  run(function() {
-    store.findRecord('person', 2);
-  });
+  run(() => store.findRecord('person', 2));
 
   assert.equal(personWillDestroy.called.length, 0, 'expected person.willDestroy to not have been called');
   assert.equal(carWillDestroy.called.length, 0, 'expected car.willDestroy to not have been called');
@@ -189,37 +197,26 @@ test("destroying the store correctly cleans everything up", function(assert) {
   assert.equal(car.get('person'), person, "expected car's person to be the correct person");
   assert.equal(person.get('cars.firstObject'), car, " expected persons cars's firstRecord to be the correct car");
 
-  Ember.run(person, person.destroy);
   Ember.run(store, 'destroy');
-
-  assert.equal(car.get('person'), null, "expected car.person to no longer be present");
 
   assert.equal(personWillDestroy.called.length, 1, 'expected person to have recieved willDestroy once');
   assert.equal(carWillDestroy.called.length, 1, 'expected car to recieve willDestroy once');
-  assert.equal(carsWillDestroy.called.length, 1, 'expected cars to recieve willDestroy once');
+  assert.equal(carsWillDestroy.called.length, 1, 'expected person.cars to recieve willDestroy once');
   assert.equal(adapterPopulatedPeopleWillDestroy.called.length, 1, 'expected adapterPopulatedPeople to recieve willDestroy once');
   assert.equal(filterdPeopleWillDestroy.called.length, 1, 'expected filterdPeople.willDestroy to have been called once');
 });
 
 function ajaxResponse(value) {
-  var passedUrl, passedVerb, passedHash;
-
   if (isEnabled('ds-improved-ajax')) {
     env.adapter._makeRequest = function() {
       return run(Ember.RSVP, 'resolve', Ember.copy(value, true));
     };
   } else {
     env.adapter.ajax = function(url, verb, hash) {
-      passedUrl = url;
-      passedVerb = verb;
-      passedHash = hash;
-
       return run(Ember.RSVP, 'resolve', Ember.copy(value, true));
     };
   }
 }
-
-
 
 module("integration/store - findRecord");
 
@@ -240,8 +237,8 @@ test("store#findRecord fetches record from server when cached record is not pres
   let cachedRecordIsPresent = store.hasRecordForId('car', 20);
   assert.ok(!cachedRecordIsPresent, 'Car with id=20 should not exist');
 
-  run(function() {
-    store.findRecord('car', 20).then(function(car) {
+  return run(() => {
+    return store.findRecord('car', 20).then(car => {
       assert.equal(car.get('make'), 'BMC', 'Car with id=20 is now loaded');
     });
   });
@@ -250,7 +247,9 @@ test("store#findRecord fetches record from server when cached record is not pres
 test("store#findRecord returns cached record immediately and reloads record in the background", function(assert) {
   assert.expect(2);
 
-  run(function() {
+  initializeStore(DS.RESTAdapter.extend());
+
+  run(() => {
     store.push({
       data: {
         type: 'car',
@@ -271,13 +270,13 @@ test("store#findRecord returns cached record immediately and reloads record in t
     }]
   });
 
-  run(function() {
-    store.findRecord('car', 1).then(function(car) {
+  run(() => {
+    return store.findRecord('car', 1).then(car => {
       assert.equal(car.get('model'), 'Mini', 'cached car record is returned');
     });
   });
 
-  run(function() {
+  run(() => {
     let car = store.peekRecord('car', 1);
     assert.equal(car.get('model'), 'Princess', 'car record was reloaded');
   });
@@ -294,7 +293,7 @@ test("store#findRecord { reload: true } ignores cached record and reloads record
 
   initializeStore(testAdapter);
 
-  run(function() {
+  run(() => {
     store.push({
       data: {
         type: 'car',
@@ -318,9 +317,141 @@ test("store#findRecord { reload: true } ignores cached record and reloads record
   let cachedCar = store.peekRecord('car', 1);
   assert.equal(cachedCar.get('model'), 'Mini', 'cached car has expected model');
 
-  run(function() {
-    store.findRecord('car', 1, { reload: true }).then(function(car) {
+  return run(() => {
+    return store.findRecord('car', 1, { reload: true }).then(car => {
       assert.equal(car.get('model'), 'Princess', 'cached record ignored, record reloaded via server');
+    });
+  });
+});
+
+test("store#findRecord { backgroundReload: false } returns cached record and does not reload in the background", function(assert) {
+  assert.expect(2);
+
+  let testAdapter = DS.RESTAdapter.extend({
+    shouldBackgroundReloadRecord() {
+      assert.ok(false, 'shouldBackgroundReloadRecord should not be called when { backgroundReload: false }');
+    },
+
+    findRecord() {
+      assert.ok(false, 'findRecord() should not be called when { backgroundReload: false }');
+    }
+  });
+
+  initializeStore(testAdapter);
+
+  run(() => {
+    store.push({
+      data: {
+        type: 'car',
+        id: '1',
+        attributes: {
+          make: 'BMC',
+          model: 'Mini'
+        }
+      }
+    });
+  });
+
+  run(() => {
+    store.findRecord('car', 1, { backgroundReload: false }).then((car) => {
+      assert.equal(car.get('model'), 'Mini', 'cached car record is returned');
+    });
+  });
+
+  run(() => {
+    let car = store.peekRecord('car', 1);
+    assert.equal(car.get('model'), 'Mini', 'car record was not reloaded');
+  });
+});
+
+test("store#findRecord { backgroundReload: true } returns cached record and reloads record in background", function(assert) {
+  assert.expect(2);
+
+  let testAdapter = DS.RESTAdapter.extend({
+    shouldBackgroundReloadRecord() {
+      assert.ok(false, 'shouldBackgroundReloadRecord should not be called when { backgroundReload: true }');
+    }
+  });
+
+  initializeStore(testAdapter);
+
+  run(() => {
+    store.push({
+      data: {
+        type: 'car',
+        id: '1',
+        attributes: {
+          make: 'BMC',
+          model: 'Mini'
+        }
+      }
+    });
+  });
+
+  ajaxResponse({
+    cars: [{
+      id: 1,
+      make: 'BMC',
+      model: 'Princess'
+    }]
+  });
+
+  run(() => {
+    store.findRecord('car', 1, { backgroundReload: true }).then((car) => {
+      assert.equal(car.get('model'), 'Mini', 'cached car record is returned');
+    });
+  });
+
+  run(() => {
+    let car = store.peekRecord('car', 1);
+    assert.equal(car.get('model'), 'Princess', 'car record was reloaded');
+  });
+});
+
+test("store#findRecord { backgroundReload: false } is ignored if adapter.shouldReloadRecord is true", function(assert) {
+  assert.expect(2);
+
+  let testAdapter = DS.RESTAdapter.extend({
+    shouldReloadRecord() {
+      return true;
+    },
+
+    shouldBackgroundReloadRecord() {
+      assert.ok(false, 'shouldBackgroundReloadRecord should not be called when adapter.shouldReloadRecord = true');
+    }
+  });
+
+  initializeStore(testAdapter);
+
+  run(() => {
+    store.push({
+      data: {
+        type: 'car',
+        id: '1',
+        attributes: {
+          make: 'BMC',
+          model: 'Mini'
+        }
+      }
+    });
+  });
+
+  ajaxResponse({
+    cars: [{
+      id: 1,
+      make: 'BMC',
+      model: 'Princess'
+    }]
+  });
+
+  run(() => {
+    let car = store.peekRecord('car', 1);
+    assert.equal(car.get('model'), 'Mini', 'Car record is initially a Mini');
+  });
+
+  run(() => {
+    store.findRecord('car', 1, { backgroundReload: false }).then((car) => {
+      assert.equal(car.get('model'), 'Princess', 'Car record is reloaded immediately (not in the background)');
     });
   });
 });
@@ -331,11 +462,11 @@ testInDebug('store#findRecord call with `id` of type different than non-empty st
 
   initializeStore(DS.RESTAdapter.extend());
 
-  run(function() {
+  run(() => {
     badValues.map(item => {
-      assert.expectAssertion(function() {
+      assert.expectAssertion(() => {
         store.findRecord('car', item);
-      }, '`id` has to be non-empty string or number');
+      }, '`id` passed to `findRecord()` has to be non-empty string or number');
     });
   });
 });
@@ -362,11 +493,11 @@ test("Using store#findAll with no records triggers a query", function(assert) {
     }]
   });
 
-  var cars = store.peekAll('car');
+  let cars = store.peekAll('car');
   assert.ok(!cars.get('length'), 'There is no cars in the store');
 
-  run(function() {
-    store.findAll('car').then(function(cars) {
+  return run(() => {
+    return store.findAll('car').then(cars => {
       assert.equal(cars.get('length'), 2, 'Two car were fetched');
     });
   });
@@ -375,7 +506,7 @@ test("Using store#findAll with no records triggers a query", function(assert) {
 test("Using store#findAll with existing records performs a query in the background, updating existing records and returning new ones", function(assert) {
   assert.expect(4);
 
-  run(function() {
+  run(() => {
     store.push({
       data: {
         type: 'car',
@@ -401,27 +532,179 @@ test("Using store#findAll with existing records performs a query in the backgrou
     }]
   });
 
-  var cars = store.peekAll('car');
+  let cars = store.peekAll('car');
   assert.equal(cars.get('length'), 1, 'There is one car in the store');
 
-  run(function() {
-    store.findAll('car').then(function(cars) {
+  let waiter = run(() => {
+    return store.findAll('car').then(cars => {
       assert.equal(cars.get('length'), 1, 'Store resolves with the existing records');
     });
   });
 
-  run(function() {
-    var cars = store.peekAll('car');
+  run(() => {
+    let cars = store.peekAll('car');
     assert.equal(cars.get('length'), 2, 'There is 2 cars in the store now');
-    var mini = cars.findBy('id', '1');
+    let mini = cars.findBy('id', '1');
     assert.equal(mini.get('model'), 'New Mini', 'Existing records have been updated');
+  });
+
+  return waiter;
+});
+
+test("store#findAll { backgroundReload: false } skips shouldBackgroundReloadAll, returns cached records & does not reload in the background", function(assert) {
+  assert.expect(4);
+
+  let testAdapter = DS.RESTAdapter.extend({
+    shouldBackgroundReloadAll() {
+      assert.ok(false, 'shouldBackgroundReloadAll should not be called when { backgroundReload: false }');
+    },
+
+    findAll() {
+      assert.ok(false, 'findAll() should not be called when { backgroundReload: true }');
+    }
+  });
+
+  initializeStore(testAdapter);
+
+  run(() => {
+    store.push({
+      data: {
+        type: 'car',
+        id: '1',
+        attributes: {
+          make: 'BMC',
+          model: 'Mini'
+        }
+      }
+    });
+  });
+
+  run(() => {
+    store.findAll('car', { backgroundReload: false }).then((cars) => {
+      assert.equal(cars.get('length'), 1, 'single cached car record is returned');
+      assert.equal(cars.get('firstObject.model'), 'Mini', 'correct cached car record is returned');
+    });
+  });
+
+  run(() => {
+    let cars = store.peekAll('car');
+    assert.equal(cars.get('length'), 1, 'single cached car record is returned again');
+    assert.equal(cars.get('firstObject.model'), 'Mini', 'correct cached car record is returned again');
+  });
+});
+
+test("store#findAll { backgroundReload: true } skips shouldBackgroundReloadAll, returns cached records, & reloads in background", function(assert) {
+  assert.expect(5);
+
+  let testAdapter = DS.RESTAdapter.extend({
+    shouldBackgroundReloadAll() {
+      assert.ok(false, 'shouldBackgroundReloadAll should not be called when { backgroundReload: true }');
+    }
+  });
+
+  initializeStore(testAdapter);
+
+  run(() => {
+    store.push({
+      data: {
+        type: 'car',
+        id: '1',
+        attributes: {
+          make: 'BMC',
+          model: 'Mini'
+        }
+      }
+    });
+  });
+
+  ajaxResponse({
+    cars: [{
+      id: 1,
+      make: 'BMC',
+      model: 'New Mini'
+    },
+    {
+      id: 2,
+      make: 'BMCW',
+      model: 'Isetta'
+    }]
+  });
+
+  run(() => {
+    store.findAll('car', { backgroundReload: true }).then((cars) => {
+      assert.equal(cars.get('length'), 1, 'single cached car record is returned');
+      assert.equal(cars.get('firstObject.model'), 'Mini', 'correct cached car record is returned');
+    });
+  });
+
+  run(() => {
+    let cars = store.peekAll('car');
+    assert.equal(cars.get('length'), 2, 'multiple cars now in the store');
+    assert.equal(cars.get('firstObject.model'), 'New Mini', 'existing record updated correctly');
+    assert.equal(cars.get('lastObject.model'), 'Isetta', 'new record added to the store');
+  });
+});
+
+test("store#findAll { backgroundReload: false } is ignored if adapter.shouldReloadAll is true", function(assert) {
+  assert.expect(5);
+
+  let testAdapter = DS.RESTAdapter.extend({
+    shouldReloadAll() {
+      return true;
+    },
+
+    shouldBackgroundReloadAll() {
+      assert.ok(false, 'shouldBackgroundReloadAll should not be called when adapter.shouldReloadAll = true');
+    }
+  });
+
+  initializeStore(testAdapter);
+
+  run(() => {
+    store.push({
+      data: {
+        type: 'car',
+        id: '1',
+        attributes: {
+          make: 'BMC',
+          model: 'Mini'
+        }
+      }
+    });
+  });
+
+  ajaxResponse({
+    cars: [{
+      id: 1,
+      make: 'BMC',
+      model: 'New Mini'
+    },
+    {
+      id: 2,
+      make: 'BMCW',
+      model: 'Isetta'
+    }]
+  });
+
+  run(() => {
+    let cars = store.peekAll('car');
+    assert.equal(cars.get('length'), 1, 'one car in the store');
+    assert.equal(cars.get('firstObject.model'), 'Mini', 'correct car is in the store');
+  });
+
+  return run(() => {
+    return store.findAll('car', { backgroundReload: false }).then((cars) => {
+      assert.equal(cars.get('length'), 2, 'multiple car records are returned');
+      assert.equal(cars.get('firstObject.model'), 'New Mini', 'initial car record was updated');
+      assert.equal(cars.get('lastObject.model'), 'Isetta', 'second car record was loaded');
+    });
   });
 });
 
 test("store#findAll should eventually return all known records even if they are not in the adapter response", function(assert) {
   assert.expect(5);
 
-  run(function() {
+  run(() => {
     store.push({
       data: [{
         type: 'car',
@@ -449,26 +732,28 @@ test("store#findAll should eventually return all known records even if they are 
     }]
   });
 
-  var cars = store.peekAll('car');
+  let cars = store.peekAll('car');
   assert.equal(cars.get('length'), 2, 'There is two cars in the store');
 
-  run(function() {
-    store.findAll('car').then(function(cars) {
+  let waiter = run(() => {
+    return store.findAll('car').then(cars => {
       assert.equal(cars.get('length'), 2, 'It returns all cars');
 
-      var carsInStore = store.peekAll('car');
+      let carsInStore = store.peekAll('car');
       assert.equal(carsInStore.get('length'), 2, 'There is 2 cars in the store');
     });
   });
 
-  run(function() {
-    var cars = store.peekAll('car');
-    var mini = cars.findBy('id', '1');
+  run(() => {
+    let cars = store.peekAll('car');
+    let mini = cars.findBy('id', '1');
     assert.equal(mini.get('model'), 'New Mini', 'Existing records have been updated');
 
-    var carsInStore = store.peekAll('car');
+    let carsInStore = store.peekAll('car');
     assert.equal(carsInStore.get('length'), 2, 'There is 2 cars in the store');
   });
+
+  return waiter;
 });
 
 
@@ -483,7 +768,7 @@ test("Using store#fetch on an empty record calls find", function(assert) {
     }]
   });
 
-  run(function() {
+  run(() => {
     store.push({
       data: {
         type: 'person',
@@ -502,11 +787,11 @@ test("Using store#fetch on an empty record calls find", function(assert) {
     });
   });
 
-  var car = store.recordForId('car', 20);
+  let car = store.recordForId('car', 20);
   assert.ok(car.get('isEmpty'), 'Car with id=20 should be empty');
 
-  run(function() {
-    store.findRecord('car', 20, { reload: true }).then(function (car) {
+  return run(() => {
+    return store.findRecord('car', 20, { reload: true }).then(car => {
       assert.equal(car.get('make'), 'BMCW', 'Car with id=20 is now loaded');
     });
   });
@@ -515,8 +800,8 @@ test("Using store#fetch on an empty record calls find", function(assert) {
 test("Using store#adapterFor should not throw an error when looking up the application adapter", function(assert) {
   assert.expect(1);
 
-  run(function() {
-    var applicationAdapter = store.adapterFor('application');
+  run(() => {
+    let applicationAdapter = store.adapterFor('application');
     assert.ok(applicationAdapter);
   });
 });
@@ -525,8 +810,8 @@ test("Using store#adapterFor should not throw an error when looking up the appli
 test("Using store#serializerFor should not throw an error when looking up the application serializer", function(assert) {
   assert.expect(1);
 
-  run(function() {
-    var applicationSerializer = store.serializerFor('application');
+  run(() => {
+    let applicationSerializer = store.serializerFor('application');
     assert.ok(applicationSerializer);
   });
 });
@@ -539,9 +824,9 @@ module("integration/store - deleteRecord", {
 
 test("Using store#deleteRecord should mark the model for removal", function(assert) {
   assert.expect(3);
-  var person;
+  let person;
 
-  run(function() {
+  run(() => {
     store.push({
       data: {
         type: 'person',
@@ -556,21 +841,18 @@ test("Using store#deleteRecord should mark the model for removal", function(asse
 
   assert.ok(store.hasRecordForId('person', 1), 'expected the record to be in the store');
 
-  var personDeleteRecord = tap(person, 'deleteRecord');
+  let personDeleteRecord = tap(person, 'deleteRecord');
 
-  run(function() {
-    store.deleteRecord(person);
-  });
+  run(() => store.deleteRecord(person));
 
   assert.equal(personDeleteRecord.called.length, 1, 'expected person.deleteRecord to have been called');
   assert.ok(person.get('isDeleted'), 'expect person to be isDeleted');
 });
 
-
 test("Store should accept a null value for `data`", function(assert) {
   assert.expect(0);
 
-  run(function() {
+  run(() => {
     store.push({
       data: null
     });
@@ -579,16 +861,29 @@ test("Store should accept a null value for `data`", function(assert) {
 
 testInDebug('store#findRecord that returns an array should assert', assert => {
   initializeStore(DS.JSONAPIAdapter.extend({
-    findRecord: function() {
+    findRecord() {
       return { data: [] };
     }
   }));
 
-  assert.expectAssertion(function() {
-    run(function() {
+  assert.expectAssertion(() => {
+    run(() => {
       store.findRecord('car', 1);
     });
-  }, /expected the primary data returned from a `findRecord` response to be an object but instead it found an array/);
+  }, /expected the primary data returned from a 'findRecord' response to be an object but instead it found an array/);
+});
+
+testInDebug('store#didSaveRecord should assert when the response to a save does not include the id', function(assert) {
+  env.adapter.createRecord = function() {
+    return {};
+  };
+
+  assert.expectAssertion(() => {
+    run(() => {
+      let car = store.createRecord('car');
+      car.save();
+    });
+  }, /Your car record was saved to the server, but the response does not have an id and no id has been set client side. Records must have ids. Please update the server response to provide an id in the response or generate the id on the client side either before saving the record or while normalizing the response./);
 });
 
 module("integration/store - queryRecord", {
@@ -610,9 +905,9 @@ testInDebug('store#queryRecord should assert when normalized payload of adapter 
     };
   };
 
-  assert.expectAssertion(function() {
-    run(function() {
-      store.queryRecord('car', {});
-    });
-  }, /Expected the primary data returned by the serializer for a `queryRecord` response to be a single object or null but instead it was an array./);
+  assert.expectAssertion(() => {
+    run(() => store.queryRecord('car', {}));
+  }, /Expected the primary data returned by the serializer for a 'queryRecord' response to be a single object or null but instead it was an array./);
 });
+
+

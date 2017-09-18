@@ -5,9 +5,10 @@ import {module, test} from 'qunit';
 
 import DS from 'ember-data';
 
-var hasMany = DS.hasMany;
-var Post, Comment, env;
-var run = Ember.run;
+const { hasMany } = DS;
+const { run } = Ember;
+
+let Post, Comment, env;
 
 module("integration/load - Loading Records", {
   beforeEach() {
@@ -25,19 +26,14 @@ module("integration/load - Loading Records", {
   }
 });
 
-test("When loading a record fails, the isLoading is set to false", function(assert) {
+test("When loading a record fails, the record is not left behind", function(assert) {
   env.adapter.findRecord = function(store, type, id, snapshot) {
     return Ember.RSVP.reject();
   };
 
-  run(function() {
-    env.store.findRecord('post', 1).then(null, assert.wait(function() {
-      // store.recordForId is private, but there is currently no other way to
-      // get the specific record instance, since it is not passed to this
-      // rejection handler
-      var post = env.store.recordForId('post', 1);
-
-      assert.equal(post.get("isLoading"), false, "post is not loading anymore");
-    }));
+  return run(() => {
+    return env.store.findRecord('post', 1).catch(() => {
+      assert.equal(env.store.hasRecordForId('post', 1), false);
+    });
   });
 });

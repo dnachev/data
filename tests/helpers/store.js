@@ -3,8 +3,8 @@ import DS from 'ember-data';
 import Owner from './owner';
 
 export default function setupStore(options) {
-  var container, registry, owner;
-  var env = {};
+  let container, registry, owner;
+  let env = {};
   options = options || {};
 
   if (Ember.Registry) {
@@ -29,7 +29,7 @@ export default function setupStore(options) {
     }
   };
 
-  var adapter = env.adapter = (options.adapter || '-default');
+  let adapter = env.adapter = (options.adapter || '-default');
   delete options.adapter;
 
   if (typeof adapter !== 'string') {
@@ -37,7 +37,7 @@ export default function setupStore(options) {
     adapter = '-ember-data-test-custom';
   }
 
-  for (var prop in options) {
+  for (let prop in options) {
     registry.register('model:' + Ember.String.dasherize(prop), options[prop]);
   }
 
@@ -49,23 +49,26 @@ export default function setupStore(options) {
   registry.optionsForType('adapter', { singleton: false });
   registry.register('adapter:-default', DS.Adapter);
 
-  registry.register('serializer:-default', DS.JSONSerializer);
+  registry.register('serializer:-default', DS.JSONAPISerializer);
+  registry.register('serializer:-json', DS.JSONSerializer);
   registry.register('serializer:-rest', DS.RESTSerializer);
 
   registry.register('adapter:-rest', DS.RESTAdapter);
-
   registry.register('adapter:-json-api', DS.JSONAPIAdapter);
-  registry.register('serializer:-json-api', DS.JSONAPISerializer);
 
-  env.restSerializer = container.lookup('serializer:-rest');
+  registry.injection('serializer', 'store', 'service:store');
+
   env.store = container.lookup('service:store');
+  env.restSerializer = container.lookup('serializer:-rest');
+  env.restSerializer.store = env.store;
   env.serializer = env.store.serializerFor('-default');
+  env.serializer.store = env.store;
   env.adapter = env.store.get('defaultAdapter');
 
   return env;
 }
 
-export {setupStore};
+export { setupStore };
 
 export function createStore(options) {
   return setupStore(options).store;

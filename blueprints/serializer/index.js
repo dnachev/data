@@ -1,4 +1,4 @@
-/*jshint node:true*/
+/* eslint-env node */
 
 var extendFromApplicationEntity = require('../../lib/utilities/extend-from-application-entity');
 
@@ -10,6 +10,6 @@ module.exports = {
   ],
 
   locals: function(options) {
-    return extendFromApplicationEntity('serializer', 'JSONAPISerializer', 'ember-data/serializers/json-api', options);
+    return extendFromApplicationEntity('serializer', 'DS.JSONAPISerializer', options);
   }
 };

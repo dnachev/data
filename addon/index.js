@@ -1,6 +1,6 @@
 import Ember from "ember";
-import { warn } from "ember-data/-private/debug";
-import isEnabled from "ember-data/-private/features";
+import { deprecate } from '@ember/debug';
+
 /**
   Ember Data
   @module ember-data
@@ -13,32 +13,30 @@ if (Ember.VERSION.match(/^1\.([0-9]|1[0-2])\./)) {
                         ". Please upgrade your version of Ember, then upgrade Ember Data.");
 }
 
-import DS from "ember-data/-private/core";
-
-import normalizeModelName from "ember-data/-private/system/normalize-model-name";
-
-import InternalModel from "ember-data/-private/system/model/internal-model";
-
 import {
-  PromiseArray,
-  PromiseObject,
-  PromiseManyArray
-} from "ember-data/-private/system/promise-proxies";
-import {
-  Store
-} from "ember-data/-private/system/store";
-import {
+  Snapshot,
+  DebugAdapter,
+  InternalModel,
+  DS,
+  BuildURLMixin,
+  belongsTo,
+  hasMany,
+  global,
+  isEnabled,
   Errors,
   RootState,
-  attr
-} from "ember-data/-private/system/model";
-import Model from "ember-data/model";
-import Snapshot from "ember-data/-private/system/snapshot";
-import Adapter from "ember-data/adapter";
-import Serializer from "ember-data/serializer";
-import DebugAdapter from "ember-data/-private/system/debug";
-
-import {
+  Model,
+  Store,
+  normalizeModelName,
+  PromiseArray,
+  PromiseObject,
+  PromiseManyArray,
+  RecordArray,
+  FilteredRecordArray,
+  AdapterPopulatedRecordArray,
+  ManyArray,
+  RecordArrayManager,
+  Relationship,
   AdapterError,
   InvalidError,
   UnauthorizedError,
@@ -50,42 +48,29 @@ import {
   AbortError,
   errorsHashToArray,
   errorsArrayToHash
-} from "ember-data/adapters/errors";
+} from './-private';
 
-import {
-  RecordArray,
-  FilteredRecordArray,
-  AdapterPopulatedRecordArray
-} from "ember-data/-private/system/record-arrays";
-import ManyArray from "ember-data/-private/system/many-array";
-import RecordArrayManager from "ember-data/-private/system/record-array-manager";
-import {
-  JSONAPIAdapter,
-  RESTAdapter
-} from "ember-data/-private/adapters";
-import BuildURLMixin from "ember-data/-private/adapters/build-url-mixin";
-import {
-  JSONAPISerializer,
-  JSONSerializer,
-  RESTSerializer
-} from "ember-data/-private/serializers";
 import "ember-inflector";
-import EmbeddedRecordsMixin from "ember-data/serializers/embedded-records-mixin";
+import setupContainer from "./setup-container";
+import initializeStoreService from './instance-initializers/initialize-store-service';
 
-import {
-  Transform,
-  DateTransform,
-  NumberTransform,
-  StringTransform,
-  BooleanTransform
-} from "ember-data/-private/transforms";
+import Transform from './transforms/transform';
+import NumberTransform from './transforms/number';
+import DateTransform from './transforms/date';
+import StringTransform from './transforms/string';
+import BooleanTransform from './transforms/boolean';
 
-import {hasMany, belongsTo} from "ember-data/relationships";
-import setupContainer from "ember-data/setup-container";
-import initializeStoreService from 'ember-data/-private/instance-initializers/initialize-store-service';
+import Adapter from "./adapter";
+import JSONAPIAdapter from './adapters/json-api';
+import RESTAdapter from './adapters/rest';
 
-import ContainerProxy from "ember-data/-private/system/container-proxy";
-import Relationship from "ember-data/-private/system/relationships/state/relationship";
+import Serializer from "./serializer";
+import JSONAPISerializer from './serializers/json-api';
+import JSONSerializer from './serializers/json';
+import RESTSerializer from './serializers/rest';
+
+import EmbeddedRecordsMixin from "./serializers/embedded-records-mixin";
+import attr from './attr';
 
 DS.Store         = Store;
 DS.PromiseArray  = PromiseArray;
@@ -152,8 +137,6 @@ DS.hasMany   = hasMany;
 
 DS.Relationship  = Relationship;
 
-DS.ContainerProxy = ContainerProxy;
-
 DS._setupContainer = setupContainer;
 DS._initializeStoreService = initializeStoreService;
 
@@ -164,6 +147,18 @@ Object.defineProperty(DS, 'normalizeModelName', {
   value: normalizeModelName
 });
 
-Ember.lookup.DS = DS;
+Object.defineProperty(global, 'DS', {
+  configurable: true,
+  get() {
+    deprecate(
+      'Using the global version of DS is deprecated. Please either import ' +
+        'the specific modules needed or `import DS from \'ember-data\';`.',
+      false,
+      { id: 'ember-data.global-ds', until: '3.0.0' }
+    );
+
+    return DS;
+  }
+});
 
 export default DS;

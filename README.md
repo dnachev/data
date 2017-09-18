@@ -39,12 +39,12 @@ bower install ember-data --save
 ```
 
 The latest passing build from the "master" branch is available on
-[http://emberjs.com/builds/#/canary](http://emberjs.com/builds/#/canary).
+[https://emberjs.com/builds/#/canary](https://emberjs.com/builds/#/canary).
 
 Similarly, the latest passing build from the "beta" branch can be found
-on [http://emberjs.com/builds/#/beta](http://emberjs.com/builds/#/beta)
+on [https://emberjs.com/builds/#/beta](https://emberjs.com/builds/#/beta)
 
-Or build ember-data.js yourself. Clone the repository and run `npm run build:production`
+Or build ember-data.js yourself. Clone the repository and run `npm run production`
 after [setup](#setup). You'll find ember-data.js in the `dist` directory.
 
 #### Internet Explorer 8
@@ -71,7 +71,7 @@ controllers in your app.
 
 ### Defining Your Models
 
-First thing's first: tell Ember Data about the models in your
+First things first: tell Ember Data about the models in your
 application. For example, imagine we're writing a blog reader app.
 
 Here's what your model definition would look like if you're using
@@ -138,12 +138,11 @@ Data store for a record of type `person` with an ID of `123`, the
 adapter translates that into an XHR request to (for example)
 `api.example.com/v3/person/123.json`.
 
-By default, Ember Data will use the `RESTAdapter`, which adheres to a
-set of RESTful JSON conventions.
+By default, Ember Data will use the `JSONAPIAdapter`, which adheres to the [JSON-API spec](http://jsonapi.org/).
 
 To learn more about adapters, including what conventions the
-`RESTAdapter` follows and how to build your own, see the Ember.js
-Guides: [Customizing Adapters](http://emberjs.com/guides/models/customizing-adapters).
+various adapters follow and how to build your own, see the Ember.js
+Guides: [Customizing Adapters](https://emberjs.com/guides/models/customizing-adapters).
 
 ### Fetching a Collection of Models
 
@@ -168,7 +167,7 @@ promise will be rejected.
 ### Even More Documentation
 
 For much more detail on how to use Ember Data, see the [Ember.js Guides
-on models](http://emberjs.com/guides/models/).
+on models](https://emberjs.com/guides/models/).
 
 # Building Ember Data
 
@@ -189,6 +188,8 @@ See [CONTRIBUTING.md](https://github.com/emberjs/data/blob/master/CONTRIBUTING.m
 2. Install Ember CLI and bower. `npm install -g ember-cli bower`
 
 3. Run `npm install` inside the project root to install the JS dependencies.
+
+4. Run `bower install` inside the project root to install Ember dependencies.
 
 ### In Your Browser
 

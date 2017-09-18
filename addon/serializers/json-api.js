@@ -3,13 +3,14 @@
 */
 
 import Ember from 'ember';
-import { assert, runInDebug, warn } from 'ember-data/-private/debug';
-import JSONSerializer from 'ember-data/serializers/json';
-import normalizeModelName from 'ember-data/-private/system/normalize-model-name';
 import { pluralize, singularize } from 'ember-inflector';
-import isEnabled from 'ember-data/-private/features';
+import { assert, deprecate, warn } from '@ember/debug';
+import { DEBUG } from '@glimmer/env';
 
-var dasherize = Ember.String.dasherize;
+import JSONSerializer from './json';
+import { normalizeModelName, isEnabled } from '../-private';
+
+const dasherize = Ember.String.dasherize;
 
 /**
   Ember Data 2.0 Serializer:
@@ -24,30 +25,28 @@ var dasherize = Ember.String.dasherize;
 
   This serializer normalizes a JSON API payload that looks like:
 
-  ```js
+  ```app/models/player.js
+  import DS from 'ember-data';
 
-    // models/player.js
-    import DS from "ember-data";
+  export default DS.Model.extend({
+    name: DS.attr('string'),
+    skill: DS.attr('string'),
+    gamesPlayed: DS.attr('number'),
+    club: DS.belongsTo('club')
+  });
+  ```
 
-    export default DS.Model.extend({
-      name: DS.attr(),
-      skill: DS.attr(),
-      gamesPlayed: DS.attr(),
-      club: DS.belongsTo('club')
-    });
+  ```app/models/club.js
+  import DS from 'ember-data';
 
-    // models/club.js
-    import DS from "ember-data";
-
-    export default DS.Model.extend({
-      name: DS.attr(),
-      location: DS.attr(),
-      players: DS.hasMany('player')
-    });
+  export default DS.Model.extend({
+    name: DS.attr('string'),
+    location: DS.attr('string'),
+    players: DS.hasMany('player')
+  });
   ```
 
   ```js
-
     {
       "data": [
         {
@@ -93,6 +92,38 @@ var dasherize = Ember.String.dasherize;
 
   to the format that the Ember Data store expects.
 
+  ### Customizing meta
+
+  Since a JSON API Document can have meta defined in multiple locations you can
+  use the specific serializer hooks if you need to customize the meta.
+
+  One scenario would be to camelCase the meta keys of your payload. The example
+  below shows how this could be done using `normalizeArrayResponse` and
+  `extractRelationship`.
+
+  ```app/serializers/application.js
+  export default JSONAPISerializer.extend({
+    normalizeArrayResponse(store, primaryModelClass, payload, id, requestType) {
+      let normalizedDocument = this._super(...arguments);
+
+      // Customize document meta
+      normalizedDocument.meta = camelCaseKeys(normalizedDocument.meta);
+
+      return normalizedDocument;
+    },
+
+    extractRelationship(relationshipHash) {
+      let normalizedRelationship = this._super(...arguments);
+
+      // Customize relationship meta
+      normalizedRelationship.meta = camelCaseKeys(normalizedRelationship.meta);
+
+      return normalizedRelationship;
+    }
+  });
+  ```
+
+  @since 1.13.0
   @class JSONAPISerializer
   @namespace DS
   @extends DS.JSONSerializer
@@ -141,8 +172,24 @@ const JSONAPISerializer = JSONSerializer.extend({
     @private
   */
   _normalizeRelationshipDataHelper(relationshipDataHash) {
-    let type = this.modelNameFromPayloadKey(relationshipDataHash.type);
-    relationshipDataHash.type = type;
+    if (isEnabled("ds-payload-type-hooks")) {
+      let modelName = this.modelNameFromPayloadType(relationshipDataHash.type);
+      let deprecatedModelNameLookup = this.modelNameFromPayloadKey(relationshipDataHash.type);
+
+      if (modelName !== deprecatedModelNameLookup && this._hasCustomModelNameFromPayloadKey()) {
+        deprecate("You are using modelNameFromPayloadKey to normalize the type for a relationship. This has been deprecated in favor of modelNameFromPayloadType", false, {
+          id: 'ds.json-api-serializer.deprecated-model-name-for-relationship',
+          until: '3.0.0'
+        });
+
+        modelName = deprecatedModelNameLookup;
+      }
+
+      relationshipDataHash.type = modelName;
+    } else {
+      relationshipDataHash.type = this.modelNameFromPayloadKey(relationshipDataHash.type);
+    }
+
     return relationshipDataHash;
   },
 
@@ -157,16 +204,36 @@ const JSONAPISerializer = JSONSerializer.extend({
       id: 'ds.serializer.type-is-undefined'
     });
 
-    let modelName = this.modelNameFromPayloadKey(resourceHash.type);
+    let modelName, usedLookup;
+
+    if (isEnabled("ds-payload-type-hooks")) {
+      modelName = this.modelNameFromPayloadType(resourceHash.type);
+      let deprecatedModelNameLookup = this.modelNameFromPayloadKey(resourceHash.type);
+
+      usedLookup = 'modelNameFromPayloadType';
+
+      if (modelName !== deprecatedModelNameLookup && this._hasCustomModelNameFromPayloadKey()) {
+        deprecate("You are using modelNameFromPayloadKey to normalize the type for a resource. This has been deprecated in favor of modelNameFromPayloadType", false, {
+          id: 'ds.json-api-serializer.deprecated-model-name-for-resource',
+          until: '3.0.0'
+        });
+
+        modelName = deprecatedModelNameLookup;
+        usedLookup = 'modelNameFromPayloadKey';
+      }
+    } else {
+      modelName = this.modelNameFromPayloadKey(resourceHash.type);
+      usedLookup = 'modelNameFromPayloadKey';
+    }
 
     if (!this.store._hasModelFor(modelName)) {
-      warn(this.warnMessageNoModelForType(modelName, resourceHash.type), false, {
+      warn(this.warnMessageNoModelForType(modelName, resourceHash.type, usedLookup), false, {
         id: 'ds.serializer.model-for-type-missing'
       });
       return null;
     }
 
-    let modelClass = this.store.modelFor(modelName);
+    let modelClass = this.store._modelFor(modelName);
     let serializer = this.store.serializerFor(modelName);
     let { data } = serializer.normalize(modelClass, resourceHash);
     return data;
@@ -212,20 +279,19 @@ const JSONAPISerializer = JSONSerializer.extend({
     return normalized;
   },
 
-  /**
-    @method extractAttributes
-    @param {DS.Model} modelClass
-    @param {Object} resourceHash
-    @return {Object}
-  */
   extractAttributes(modelClass, resourceHash) {
-    var attributes = {};
+    let attributes = {};
 
     if (resourceHash.attributes) {
       modelClass.eachAttribute((key) => {
         let attributeKey = this.keyForAttribute(key, 'deserialize');
-        if (resourceHash.attributes.hasOwnProperty(attributeKey)) {
+        if (resourceHash.attributes[attributeKey] !== undefined) {
           attributes[key] = resourceHash.attributes[attributeKey];
+        }
+        if (DEBUG) {
+          if (resourceHash.attributes[attributeKey] === undefined && resourceHash.attributes[key] !== undefined) {
+            assert(`Your payload for '${modelClass.modelName}' contains '${key}', but your serializer is setup to look for '${attributeKey}'. This is most likely because Ember Data's JSON API serializer dasherizes attribute keys by default. You should subclass JSONAPISerializer and implement 'keyForAttribute(key) { return key; }' to prevent Ember Data from customizing your attribute keys.`, false);
+          }
         }
       });
     }
@@ -233,11 +299,6 @@ const JSONAPISerializer = JSONSerializer.extend({
     return attributes;
   },
 
-  /**
-    @method extractRelationship
-    @param {Object} relationshipHash
-    @return {Object}
-  */
   extractRelationship(relationshipHash) {
 
     if (Ember.typeOf(relationshipHash.data) === 'object') {
@@ -258,23 +319,22 @@ const JSONAPISerializer = JSONSerializer.extend({
     return relationshipHash;
   },
 
-  /**
-    @method extractRelationships
-    @param {Object} modelClass
-    @param {Object} resourceHash
-    @return {Object}
-  */
   extractRelationships(modelClass, resourceHash) {
     let relationships = {};
 
     if (resourceHash.relationships) {
       modelClass.eachRelationship((key, relationshipMeta) => {
         let relationshipKey = this.keyForRelationship(key, relationshipMeta.kind, 'deserialize');
-        if (resourceHash.relationships.hasOwnProperty(relationshipKey)) {
+        if (resourceHash.relationships[relationshipKey] !== undefined) {
 
           let relationshipHash = resourceHash.relationships[relationshipKey];
           relationships[key] = this.extractRelationship(relationshipHash);
 
+        }
+        if (DEBUG) {
+          if (resourceHash.relationships[relationshipKey] === undefined && resourceHash.relationships[key] !== undefined) {
+            assert(`Your payload for '${modelClass.modelName}' contains '${key}', but your serializer is setup to look for '${relationshipKey}'. This is most likely because Ember Data's JSON API serializer dasherizes relationship keys by default. You should subclass JSONAPISerializer and implement 'keyForRelationship(key) { return key; }' to prevent Ember Data from customizing your relationship keys.`, false);
+          }
         }
       });
     }
@@ -290,33 +350,56 @@ const JSONAPISerializer = JSONSerializer.extend({
     @private
   */
   _extractType(modelClass, resourceHash) {
-    return this.modelNameFromPayloadKey(resourceHash.type);
+    if (isEnabled("ds-payload-type-hooks")) {
+      let modelName = this.modelNameFromPayloadType(resourceHash.type);
+      let deprecatedModelNameLookup = this.modelNameFromPayloadKey(resourceHash.type);
+
+      if (modelName !== deprecatedModelNameLookup && this._hasCustomModelNameFromPayloadKey()) {
+        deprecate("You are using modelNameFromPayloadKey to normalize the type for a polymorphic relationship. This has been deprecated in favor of modelNameFromPayloadType", false, {
+          id: 'ds.json-api-serializer.deprecated-model-name-for-polymorphic-type',
+          until: '3.0.0'
+        });
+
+        modelName = deprecatedModelNameLookup;
+      }
+
+      return modelName;
+    } else {
+      return this.modelNameFromPayloadKey(resourceHash.type);
+    }
   },
 
   /**
+    Dasherizes and singularizes the model name in the payload to match
+    the format Ember Data uses internally for the model name.
+
+    For example the key `posts` would be converted to `post` and the
+    key `studentAssesments` would be converted to `student-assesment`.
+
     @method modelNameFromPayloadKey
     @param {String} key
     @return {String} the model's modelName
   */
+  // TODO @deprecated Use modelNameFromPayloadType instead
   modelNameFromPayloadKey(key) {
     return singularize(normalizeModelName(key));
   },
 
   /**
+    Converts the model name to a pluralized version of the model name.
+
+    For example `post` would be converted to `posts` and
+    `student-assesment` would be converted to `student-assesments`.
+
     @method payloadKeyFromModelName
     @param {String} modelName
     @return {String}
   */
+  // TODO @deprecated Use payloadTypeFromModelName instead
   payloadKeyFromModelName(modelName) {
     return pluralize(modelName);
   },
 
-  /**
-    @method normalize
-    @param {DS.Model} modelClass
-    @param {Object} resourceHash the resource hash from the adapter
-    @return {Object} the normalized resource hash
-  */
   normalize(modelClass, resourceHash) {
     if (resourceHash.attributes) {
       this.normalizeUsingDeclaredMapping(modelClass, resourceHash.attributes);
@@ -353,7 +436,7 @@ const JSONAPISerializer = JSONSerializer.extend({
    import DS from 'ember-data';
 
    export default DS.JSONAPISerializer.extend({
-     keyForAttribute: function(attr, method) {
+     keyForAttribute(attr, method) {
        return Ember.String.dasherize(attr).toUpperCase();
      }
    });
@@ -383,7 +466,7 @@ const JSONAPISerializer = JSONSerializer.extend({
     import DS from 'ember-data';
 
     export default DS.JSONAPISerializer.extend({
-      keyForRelationship: function(key, relationship, method) {
+      keyForRelationship(key, relationship, method) {
         return Ember.String.underscore(key);
       }
     });
@@ -398,35 +481,40 @@ const JSONAPISerializer = JSONSerializer.extend({
     return dasherize(key);
   },
 
-  /**
-    @method serialize
-    @param {DS.Snapshot} snapshot
-    @param {Object} options
-    @return {Object} json
-  */
   serialize(snapshot, options) {
     let data = this._super(...arguments);
-    data.type = this.payloadKeyFromModelName(snapshot.modelName);
+
+    let payloadType;
+    if (isEnabled("ds-payload-type-hooks")) {
+      payloadType = this.payloadTypeFromModelName(snapshot.modelName);
+      let deprecatedPayloadTypeLookup = this.payloadKeyFromModelName(snapshot.modelName);
+
+      if (payloadType !== deprecatedPayloadTypeLookup && this._hasCustomPayloadKeyFromModelName()) {
+        deprecate("You used payloadKeyFromModelName to customize how a type is serialized. Use payloadTypeFromModelName instead.", false, {
+          id: 'ds.json-api-serializer.deprecated-payload-type-for-model',
+          until: '3.0.0'
+        });
+
+        payloadType = deprecatedPayloadTypeLookup;
+      }
+    } else {
+      payloadType = this.payloadKeyFromModelName(snapshot.modelName);
+    }
+
+    data.type = payloadType;
     return { data };
   },
 
-  /**
-   @method serializeAttribute
-   @param {DS.Snapshot} snapshot
-   @param {Object} json
-   @param {String} key
-   @param {Object} attribute
-  */
   serializeAttribute(snapshot, json, key, attribute) {
-    const type = attribute.type;
+    let type = attribute.type;
 
     if (this._canSerialize(key)) {
       json.attributes = json.attributes || {};
 
       let value = snapshot.attr(key);
       if (type) {
-        const transform = this.transformFor(type);
-        value = transform.serialize(value);
+        let transform = this.transformFor(type);
+        value = transform.serialize(value, attribute.options);
       }
 
       let payloadKey = this._getMappedKey(key, snapshot.type);
@@ -439,30 +527,42 @@ const JSONAPISerializer = JSONSerializer.extend({
     }
   },
 
-  /**
-   @method serializeBelongsTo
-   @param {DS.Snapshot} snapshot
-   @param {Object} json
-   @param {Object} relationship
-  */
   serializeBelongsTo(snapshot, json, relationship) {
-    var key = relationship.key;
+    let key = relationship.key;
 
     if (this._canSerialize(key)) {
-      var belongsTo = snapshot.belongsTo(key);
+      let belongsTo = snapshot.belongsTo(key);
       if (belongsTo !== undefined) {
 
         json.relationships = json.relationships || {};
 
-        var payloadKey = this._getMappedKey(key, snapshot.type);
+        let payloadKey = this._getMappedKey(key, snapshot.type);
         if (payloadKey === key) {
           payloadKey = this.keyForRelationship(key, 'belongsTo', 'serialize');
         }
 
         let data = null;
         if (belongsTo) {
+          let payloadType;
+
+          if (isEnabled("ds-payload-type-hooks")) {
+            payloadType = this.payloadTypeFromModelName(belongsTo.modelName);
+            let deprecatedPayloadTypeLookup = this.payloadKeyFromModelName(belongsTo.modelName);
+
+            if (payloadType !== deprecatedPayloadTypeLookup && this._hasCustomPayloadKeyFromModelName()) {
+              deprecate("You used payloadKeyFromModelName to serialize type for belongs-to relationship. Use payloadTypeFromModelName instead.", false, {
+                id: 'ds.json-api-serializer.deprecated-payload-type-for-belongs-to',
+                until: '3.0.0'
+              });
+
+              payloadType = deprecatedPayloadTypeLookup;
+            }
+          } else {
+            payloadType = this.payloadKeyFromModelName(belongsTo.modelName);
+          }
+
           data = {
-            type: this.payloadKeyFromModelName(belongsTo.modelName),
+            type: payloadType,
             id: belongsTo.id
           };
         }
@@ -472,22 +572,20 @@ const JSONAPISerializer = JSONSerializer.extend({
     }
   },
 
-  /**
-   @method serializeHasMany
-   @param {DS.Snapshot} snapshot
-   @param {Object} json
-   @param {Object} relationship
-  */
   serializeHasMany(snapshot, json, relationship) {
-    var key = relationship.key;
+    let key = relationship.key;
+    let shouldSerializeHasMany = '_shouldSerializeHasMany';
+    if (isEnabled("ds-check-should-serialize-relationships")) {
+      shouldSerializeHasMany = 'shouldSerializeHasMany';
+    }
 
-    if (this._shouldSerializeHasMany(snapshot, key, relationship)) {
-      var hasMany = snapshot.hasMany(key);
+    if (this[shouldSerializeHasMany](snapshot, key, relationship)) {
+      let hasMany = snapshot.hasMany(key);
       if (hasMany !== undefined) {
 
         json.relationships = json.relationships || {};
 
-        var payloadKey = this._getMappedKey(key, snapshot.type);
+        let payloadKey = this._getMappedKey(key, snapshot.type);
         if (payloadKey === key && this.keyForRelationship) {
           payloadKey = this.keyForRelationship(key, 'hasMany', 'serialize');
         }
@@ -496,8 +594,27 @@ const JSONAPISerializer = JSONSerializer.extend({
 
         for (let i = 0; i < hasMany.length; i++) {
           let item = hasMany[i];
+
+          let payloadType;
+
+          if (isEnabled("ds-payload-type-hooks")) {
+            payloadType = this.payloadTypeFromModelName(item.modelName);
+            let deprecatedPayloadTypeLookup = this.payloadKeyFromModelName(item.modelName);
+
+            if (payloadType !== deprecatedPayloadTypeLookup && this._hasCustomPayloadKeyFromModelName()) {
+              deprecate("You used payloadKeyFromModelName to serialize type for belongs-to relationship. Use payloadTypeFromModelName instead.", false, {
+                id: 'ds.json-api-serializer.deprecated-payload-type-for-has-many',
+                until: '3.0.0'
+              });
+
+              payloadType = deprecatedPayloadTypeLookup;
+            }
+          } else {
+            payloadType = this.payloadKeyFromModelName(item.modelName);
+          }
+
           data[i] = {
-            type: this.payloadKeyFromModelName(item.modelName),
+            type: payloadType,
             id: item.id
           };
         }
@@ -508,9 +625,124 @@ const JSONAPISerializer = JSONSerializer.extend({
   }
 });
 
-runInDebug(function() {
+if (isEnabled("ds-payload-type-hooks")) {
+
+  JSONAPISerializer.reopen({
+
+    /**
+      `modelNameFromPayloadType` can be used to change the mapping for a DS model
+      name, taken from the value in the payload.
+
+      Say your API namespaces the type of a model and returns the following
+      payload for the `post` model:
+
+      ```javascript
+      // GET /api/posts/1
+      {
+        "data": {
+          "id": 1,
+          "type: "api::v1::post"
+        }
+      }
+      ```
+
+      By overwriting `modelNameFromPayloadType` you can specify that the
+      `post` model should be used:
+
+      ```app/serializers/application.js
+      import DS from 'ember-data';
+
+      export default DS.JSONAPISerializer.extend({
+        modelNameFromPayloadType(payloadType) {
+          return payloadType.replace('api::v1::', '');
+        }
+      });
+      ```
+
+      By default the modelName for a model is its singularized name in dasherized
+      form.  Usually, Ember Data can use the correct inflection to do this for
+      you. Most of the time, you won't need to override
+      `modelNameFromPayloadType` for this purpose.
+
+      Also take a look at
+      [payloadTypeFromModelName](#method_payloadTypeFromModelName) to customize
+      how the type of a record should be serialized.
+
+      @method modelNameFromPayloadType
+      @public
+      @param {String} payloadType type from payload
+      @return {String} modelName
+    */
+    modelNameFromPayloadType(type) {
+      return singularize(normalizeModelName(type));
+    },
+
+    /**
+      `payloadTypeFromModelName` can be used to change the mapping for the type in
+      the payload, taken from the model name.
+
+      Say your API namespaces the type of a model and expects the following
+      payload when you update the `post` model:
+
+      ```javascript
+      // POST /api/posts/1
+      {
+        "data": {
+          "id": 1,
+          "type": "api::v1::post"
+        }
+      }
+      ```
+
+      By overwriting `payloadTypeFromModelName` you can specify that the
+      namespaces model name for the `post` should be used:
+
+      ```app/serializers/application.js
+      import DS from 'ember-data';
+
+      export default JSONAPISerializer.extend({
+        payloadTypeFromModelName(modelName) {
+          return 'api::v1::' + modelName;
+        }
+      });
+      ```
+
+      By default the payload type is the pluralized model name. Usually, Ember
+      Data can use the correct inflection to do this for you. Most of the time,
+      you won't need to override `payloadTypeFromModelName` for this purpose.
+
+      Also take a look at
+      [modelNameFromPayloadType](#method_modelNameFromPayloadType) to customize
+      how the model name from should be mapped from the payload.
+
+      @method payloadTypeFromModelName
+      @public
+      @param {String} modelname modelName from the record
+      @return {String} payloadType
+    */
+    payloadTypeFromModelName(modelName) {
+      return pluralize(modelName);
+    },
+
+    _hasCustomModelNameFromPayloadKey() {
+      return this.modelNameFromPayloadKey !== JSONAPISerializer.prototype.modelNameFromPayloadKey;
+    },
+
+    _hasCustomPayloadKeyFromModelName() {
+      return this.payloadKeyFromModelName !== JSONAPISerializer.prototype.payloadKeyFromModelName;
+    }
+
+  });
+
+}
+
+if (DEBUG) {
   JSONAPISerializer.reopen({
     willMergeMixin(props) {
+      let constructor = this.constructor;
+      warn(`You've defined 'extractMeta' in ${constructor.toString()} which is not used for serializers extending JSONAPISerializer. Read more at https://emberjs.com/api/data/classes/DS.JSONAPISerializer.html#toc_customizing-meta on how to customize meta when using JSON API.`, Ember.isNone(props.extractMeta) || props.extractMeta === JSONSerializer.prototype.extractMeta, {
+        id: 'ds.serializer.json-api.extractMeta'
+      });
       warn('The JSONAPISerializer does not work with the EmbeddedRecordsMixin because the JSON API spec does not describe how to format embedded resources.', !props.isEmbeddedRecordsMixin, {
         id: 'ds.serializer.embedded-records-mixin-not-supported'
       });
@@ -518,10 +750,10 @@ runInDebug(function() {
     warnMessageForUndefinedType() {
       return 'Encountered a resource object with an undefined type (resolved resource using ' + this.constructor.toString() + ')';
     },
-    warnMessageNoModelForType(modelName, originalType) {
-      return 'Encountered a resource object with type "' + originalType + '", but no model was found for model name "' + modelName + '" (resolved model name using ' + this.constructor.toString() + '.modelNameFromPayloadKey("' + originalType + '"))';
+    warnMessageNoModelForType(modelName, originalType, usedLookup) {
+      return `Encountered a resource object with type "${originalType}", but no model was found for model name "${modelName}" (resolved model name using '${this.constructor.toString()}.${usedLookup}("${originalType}")').`;
     }
   });
-});
+}
 
 export default JSONAPISerializer;

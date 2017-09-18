@@ -1,4 +1,4 @@
-/* jshint node: true */
+/* eslint-env node */
 
 var fs = require('fs');
 var path = require('path');
@@ -9,16 +9,14 @@ var featureFlags = JSON.parse(featuresJson);
 module.exports = function(environment) {
   var ENV = {
     modulePrefix: 'dummy',
+    podModulePrefix: 'dummy/routes',
     environment: environment,
-    baseURL: '/',
+    rootURL: '/',
     locationType: 'auto',
     EmberENV: {
       FEATURES: featureFlags,
       ENABLE_DS_FILTER: true,
-
-      // don't raise on deprecation yet, since there are too many thrown errors;
-      // this should be addressed in another PR
-      // RAISE_ON_DEPRECATION: true
+      RAISE_ON_DEPRECATION: true
     },
 
     APP: {
@@ -41,7 +39,6 @@ module.exports = function(environment) {
 
   if (environment === 'test') {
     // Testem prefers this...
-    ENV.baseURL = '/';
     ENV.locationType = 'none';
 
     // keep test console output quieter

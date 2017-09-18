@@ -3,15 +3,14 @@
 */
 
 import Ember from 'ember';
-import { assert, deprecate, runInDebug, warn } from "ember-data/-private/debug";
-import JSONSerializer from "ember-data/serializers/json";
-import normalizeModelName from "ember-data/-private/system/normalize-model-name";
-import {singularize} from "ember-inflector";
-import coerceId from "ember-data/-private/system/coerce-id";
-import { modelHasAttributeOrRelationshipNamedType } from "ember-data/-private/utils";
-import isEnabled from 'ember-data/-private/features';
+import { singularize } from "ember-inflector";
+import { assert, deprecate, warn } from '@ember/debug';
+import { DEBUG } from '@glimmer/env';
 
-var camelize = Ember.String.camelize;
+import JSONSerializer from "../serializers/json";
+import { coerceId, modelHasAttributeOrRelationshipNamedType, normalizeModelName, isEnabled } from '../-private';
+
+const { camelize } = Ember.String;
 
 /**
   Normally, applications will use the `RESTSerializer` by implementing
@@ -40,7 +39,7 @@ var camelize = Ember.String.camelize;
   import DS from 'ember-data';
 
   export default DS.RESTSerializer.extend({
-    keyForAttribute: function(attr, method) {
+    keyForAttribute(attr, method) {
       return Ember.String.underscore(attr).toUpperCase();
     }
   });
@@ -55,7 +54,7 @@ var camelize = Ember.String.camelize;
   @namespace DS
   @extends DS.JSONSerializer
 */
-var RESTSerializer = JSONSerializer.extend({
+const RESTSerializer = JSONSerializer.extend({
 
   /**
    `keyForPolymorphicType` can be used to define a custom key when
@@ -68,7 +67,7 @@ var RESTSerializer = JSONSerializer.extend({
     import DS from 'ember-data';
 
     export default DS.RESTSerializer.extend({
-      keyForPolymorphicType: function(key, relationship) {
+      keyForPolymorphicType(key, relationship) {
         var relationshipKey = this.keyForRelationship(key);
 
         return 'type-' + relationshipKey;
@@ -83,7 +82,7 @@ var RESTSerializer = JSONSerializer.extend({
    @return {String} normalized key
   */
   keyForPolymorphicType(key, typeClass, method) {
-    var relationshipKey = this.keyForRelationship(key);
+    let relationshipKey = this.keyForRelationship(key);
 
     return `${relationshipKey}Type`;
   },
@@ -123,7 +122,7 @@ var RESTSerializer = JSONSerializer.extend({
     * With `App.Comment`, `"comments"` and `{ id: 2, body: "Rails is unagi" }`
 
     You can use this method, for example, to normalize underscored keys to camelized
-    or other general-purpose normalizations. You will only need to implement 
+    or other general-purpose normalizations. You will only need to implement
     `normalize` and manipulate the payload as desired.
 
     For example, if the `IDs` under `"comments"` are provided as `_id` instead of
@@ -136,7 +135,7 @@ var RESTSerializer = JSONSerializer.extend({
       normalize(model, hash, prop) {
         if (prop === 'comments') {
           hash.id = hash._id;
-          delete hash._id;   
+          delete hash._id;
         }
 
         return this._super(...arguments);
@@ -144,8 +143,8 @@ var RESTSerializer = JSONSerializer.extend({
     });
     ```
 
-    On each call to the `normalize` method, the third parameter (`prop`) is always 
-    one of the keys that were in the original payload or in the result of another 
+    On each call to the `normalize` method, the third parameter (`prop`) is always
+    one of the keys that were in the original payload or in the result of another
     normalization as `normalizeResponse`.
 
     @method normalize
@@ -186,7 +185,6 @@ var RESTSerializer = JSONSerializer.extend({
     let modelClass = store.modelFor(modelName);
     let serializer = store.serializerFor(modelName);
 
-    /*jshint loopfunc:true*/
     Ember.makeArray(arrayHash).forEach((hash) => {
       let { data, included } = this._normalizePolymorphicRecord(store, hash, prop, modelClass, serializer);
       documentHash.data.push(data);
@@ -199,16 +197,36 @@ var RESTSerializer = JSONSerializer.extend({
   },
 
   _normalizePolymorphicRecord(store, hash, prop, primaryModelClass, primarySerializer) {
-    let serializer, modelClass;
-    const primaryHasTypeAttribute = modelHasAttributeOrRelationshipNamedType(primaryModelClass);
-    // Support polymorphic records in async relationships
-    if (!primaryHasTypeAttribute && hash.type && store._hasModelFor(this.modelNameFromPayloadKey(hash.type))) {
-      serializer = store.serializerFor(this.modelNameFromPayloadKey(hash.type));
-      modelClass = store.modelFor(this.modelNameFromPayloadKey(hash.type));
-    } else {
-      serializer = primarySerializer;
-      modelClass = primaryModelClass;
+    let serializer = primarySerializer;
+    let modelClass = primaryModelClass;
+
+    let primaryHasTypeAttribute = modelHasAttributeOrRelationshipNamedType(primaryModelClass);
+
+    if (!primaryHasTypeAttribute && hash.type) {
+      // Support polymorphic records in async relationships
+      let modelName;
+      if (isEnabled("ds-payload-type-hooks")) {
+        modelName = this.modelNameFromPayloadType(hash.type);
+        let deprecatedModelNameLookup = this.modelNameFromPayloadKey(hash.type);
+
+        if (modelName !== deprecatedModelNameLookup && !this._hasCustomModelNameFromPayloadType() && this._hasCustomModelNameFromPayloadKey()) {
+          deprecate("You are using modelNameFromPayloadKey to normalize the type for a polymorphic relationship. This is has been deprecated in favor of modelNameFromPayloadType", false, {
+            id: 'ds.rest-serializer.deprecated-model-name-for-polymorphic-type',
+            until: '3.0.0'
+          });
+
+          modelName = deprecatedModelNameLookup;
+        }
+      } else {
+        modelName = this.modelNameFromPayloadKey(hash.type);
+      }
+
+      if (store._hasModelFor(modelName)) {
+        serializer = store.serializerFor(modelName);
+        modelClass = store.modelFor(modelName);
+      }
     }
+
     return serializer.normalize(modelClass, hash, prop);
   },
 
@@ -235,10 +253,10 @@ var RESTSerializer = JSONSerializer.extend({
       documentHash.meta = meta;
     }
 
-    var keys = Object.keys(payload);
+    let keys = Object.keys(payload);
 
-    for (let i = 0, length = keys.length; i < length; i++) {
-      let prop = keys[i];
+    for (var i = 0, length = keys.length; i < length; i++) {
+      var prop = keys[i];
       var modelName = prop;
       var forcedSecondary = false;
 
@@ -282,7 +300,7 @@ var RESTSerializer = JSONSerializer.extend({
         continue;
       }
 
-      runInDebug(function() {
+      if (DEBUG) {
         let isQueryRecordAnArray = requestType === 'queryRecord' && isPrimary && Array.isArray(value);
         let message = "The adapter returned an array for the primary data of a `queryRecord` response. This is deprecated as `queryRecord` should return a single record.";
 
@@ -290,7 +308,7 @@ var RESTSerializer = JSONSerializer.extend({
           id: 'ds.serializer.rest.queryRecord-array-response',
           until: '3.0'
         });
-      });
+      }
 
       /*
         Support primary data as an object instead of an array.
@@ -303,7 +321,7 @@ var RESTSerializer = JSONSerializer.extend({
         }
         ```
        */
-      if (isPrimary && Ember.typeOf(value) !== 'array') {
+      if (isPrimary && !Array.isArray(value)) {
         let { data, included } = this._normalizePolymorphicRecord(store, value, prop, primaryModelClass, this);
         documentHash.data = data;
         if (included) {
@@ -319,8 +337,7 @@ var RESTSerializer = JSONSerializer.extend({
       }
 
       if (isSingle) {
-        /*jshint loopfunc:true*/
-        data.forEach((resource) => {
+        data.forEach(resource => {
 
           /*
             Figures out if this is the primary record or not.
@@ -331,8 +348,8 @@ var RESTSerializer = JSONSerializer.extend({
             2. If it's a newly created record without an ID, the first record
                in the array
            */
-          var isUpdatedRecord = isPrimary && coerceId(resource.id) === id;
-          var isFirstCreatedRecord = isPrimary && !id && !documentHash.data;
+          let isUpdatedRecord = isPrimary && coerceId(resource.id) === id;
+          let isFirstCreatedRecord = isPrimary && !id && !documentHash.data;
 
           if (isFirstCreatedRecord || isUpdatedRecord) {
             documentHash.data = resource;
@@ -355,8 +372,7 @@ var RESTSerializer = JSONSerializer.extend({
   },
 
   isPrimaryType(store, typeName, primaryTypeClass) {
-    var typeClass = store.modelFor(typeName);
-    return typeClass.modelName === primaryTypeClass.modelName;
+    return store.modelFor(typeName) === primaryTypeClass;
   },
 
   /**
@@ -407,8 +423,7 @@ var RESTSerializer = JSONSerializer.extend({
       var type = store.modelFor(modelName);
       var typeSerializer = store.serializerFor(type.modelName);
 
-      /*jshint loopfunc:true*/
-      Ember.makeArray(payload[prop]).forEach((hash) => {
+      Ember.makeArray(payload[prop]).forEach(hash => {
         let { data, included } = typeSerializer.normalize(type, hash, prop);
         documentHash.data.push(data);
         if (included) {
@@ -460,7 +475,7 @@ var RESTSerializer = JSONSerializer.extend({
     import DS from 'ember-data';
 
     export default DS.RESTSerializer.extend({
-      modelNameFromPayloadKey: function(payloadKey) {
+      modelNameFromPayloadKey(payloadKey) {
         if (payloadKey === 'blog/post') {
           return this._super(payloadKey.replace('blog/', ''));
         } else {
@@ -547,12 +562,12 @@ var RESTSerializer = JSONSerializer.extend({
     import DS from 'ember-data';
 
     export default DS.RESTSerializer.extend({
-      serialize: function(snapshot, options) {
+      serialize(snapshot, options) {
         var json = {
           POST_TTL: snapshot.attr('title'),
           POST_BDY: snapshot.attr('body'),
           POST_CMS: snapshot.hasMany('comments', { ids: true })
-        }
+        };
 
         if (options.includeId) {
           json.POST_ID_ = snapshot.id;
@@ -573,12 +588,12 @@ var RESTSerializer = JSONSerializer.extend({
     import DS from 'ember-data';
 
     export default DS.RESTSerializer.extend({
-      serialize: function(snapshot, options) {
+      serialize(snapshot, options) {
         var json = {};
 
         snapshot.eachAttribute(function(name) {
           json[serverAttributeName(name)] = snapshot.attr(name);
-        })
+        });
 
         snapshot.eachRelationship(function(name, relationship) {
           if (relationship.kind === 'hasMany') {
@@ -623,7 +638,7 @@ var RESTSerializer = JSONSerializer.extend({
     import DS from 'ember-data';
 
     export default DS.RESTSerializer.extend({
-      serialize: function(snapshot, options) {
+      serialize(snapshot, options) {
         var json = this._super(snapshot, options);
 
         json.subject = json.title;
@@ -655,7 +670,7 @@ var RESTSerializer = JSONSerializer.extend({
     import DS from 'ember-data';
 
     export default DS.RESTSerializer.extend({
-      serializeIntoHash: function(data, type, record, options) {
+      serializeIntoHash(data, type, record, options) {
         var root = Ember.String.decamelize(type.modelName);
         data[root] = this.serialize(record, options);
       }
@@ -669,7 +684,7 @@ var RESTSerializer = JSONSerializer.extend({
     @param {Object} options
   */
   serializeIntoHash(hash, typeClass, snapshot, options) {
-    var normalizedRootKey = this.payloadKeyFromModelName(typeClass.modelName);
+    let normalizedRootKey = this.payloadKeyFromModelName(typeClass.modelName);
     hash[normalizedRootKey] = this.serialize(snapshot, options);
   },
 
@@ -696,7 +711,7 @@ var RESTSerializer = JSONSerializer.extend({
     import DS from 'ember-data';
 
     export default DS.RESTSerializer.extend({
-      payloadKeyFromModelName: function(modelName) {
+      payloadKeyFromModelName(modelName) {
         return Ember.String.dasherize(modelName);
       }
     });
@@ -733,9 +748,9 @@ var RESTSerializer = JSONSerializer.extend({
     @param {Object} relationship
   */
   serializePolymorphicType(snapshot, json, relationship) {
-    var key = relationship.key;
-    var belongsTo = snapshot.belongsTo(key);
-    var typeKey = this.keyForPolymorphicType(key, relationship.type, 'serialize');
+    let key = relationship.key;
+    let typeKey = this.keyForPolymorphicType(key, relationship.type, 'serialize');
+    let belongsTo = snapshot.belongsTo(key);
 
     // old way of getting the key for the polymorphic type
     key = this.keyForAttribute ? this.keyForAttribute(key, "serialize") : key;
@@ -758,7 +773,11 @@ var RESTSerializer = JSONSerializer.extend({
     if (Ember.isNone(belongsTo)) {
       json[typeKey] = null;
     } else {
-      json[typeKey] = camelize(belongsTo.modelName);
+      if (isEnabled("ds-payload-type-hooks")) {
+        json[typeKey] = this.payloadTypeFromModelName(belongsTo.modelName);
+      } else {
+        json[typeKey] = camelize(belongsTo.modelName);
+      }
     }
   },
 
@@ -773,7 +792,7 @@ var RESTSerializer = JSONSerializer.extend({
     @return {Object}
    */
   extractPolymorphicRelationship(relationshipType, relationshipHash, relationshipOptions) {
-    var { key, resourceHash, relationshipMeta } = relationshipOptions;
+    let { key, resourceHash, relationshipMeta } = relationshipOptions;
 
     // A polymorphic belongsTo relationship can be present in the payload
     // either in the form where the `id` and the `type` are given:
@@ -792,27 +811,175 @@ var RESTSerializer = JSONSerializer.extend({
     // The next code checks if the latter case is present and returns the
     // corresponding JSON-API representation. The former case is handled within
     // the base class JSONSerializer.
-    var isPolymorphic = relationshipMeta.options.polymorphic;
-    var typeProperty = this.keyForPolymorphicType(key, relationshipType, 'deserialize');
+    let isPolymorphic = relationshipMeta.options.polymorphic;
+    let typeProperty = this.keyForPolymorphicType(key, relationshipType, 'deserialize');
 
-    if (isPolymorphic && resourceHash.hasOwnProperty(typeProperty) && typeof relationshipHash !== 'object') {
-      let type = this.modelNameFromPayloadKey(resourceHash[typeProperty]);
-      return {
-        id: relationshipHash,
-        type: type
-      };
+    if (isPolymorphic && resourceHash[typeProperty] !== undefined && typeof relationshipHash !== 'object') {
+
+      if (isEnabled("ds-payload-type-hooks")) {
+
+        let payloadType = resourceHash[typeProperty];
+        let type = this.modelNameFromPayloadType(payloadType);
+        let deprecatedTypeLookup = this.modelNameFromPayloadKey(payloadType);
+
+        if (payloadType !== deprecatedTypeLookup && !this._hasCustomModelNameFromPayloadType() && this._hasCustomModelNameFromPayloadKey()) {
+          deprecate("You are using modelNameFromPayloadKey to normalize the type for a polymorphic relationship. This has been deprecated in favor of modelNameFromPayloadType", false, {
+            id: 'ds.rest-serializer.deprecated-model-name-for-polymorphic-type',
+            until: '3.0.0'
+          });
+
+          type = deprecatedTypeLookup;
+        }
+
+        return {
+          id: relationshipHash,
+          type: type
+        };
+
+      } else {
+
+        let type = this.modelNameFromPayloadKey(resourceHash[typeProperty]);
+        return {
+          id: relationshipHash,
+          type: type
+        };
+
+      }
     }
 
     return this._super(...arguments);
   }
 });
 
-runInDebug(function() {
+
+if (isEnabled("ds-payload-type-hooks")) {
+
+  RESTSerializer.reopen({
+
+    /**
+      `modelNameFromPayloadType` can be used to change the mapping for a DS model
+      name, taken from the value in the payload.
+
+      Say your API namespaces the type of a model and returns the following
+      payload for the `post` model, which has a polymorphic `user` relationship:
+
+      ```javascript
+      // GET /api/posts/1
+      {
+        "post": {
+          "id": 1,
+          "user": 1,
+          "userType: "api::v1::administrator"
+        }
+      }
+      ```
+
+      By overwriting `modelNameFromPayloadType` you can specify that the
+      `administrator` model should be used:
+
+      ```app/serializers/application.js
+      import DS from 'ember-data';
+
+      export default DS.RESTSerializer.extend({
+        modelNameFromPayloadType(payloadType) {
+          return payloadType.replace('api::v1::', '');
+        }
+      });
+      ```
+
+      By default the modelName for a model is its name in dasherized form.
+      Usually, Ember Data can use the correct inflection to do this for you. Most
+      of the time, you won't need to override `modelNameFromPayloadType` for this
+      purpose.
+
+      Also take a look at
+      [payloadTypeFromModelName](#method_payloadTypeFromModelName) to customize
+      how the type of a record should be serialized.
+
+      @method modelNameFromPayloadType
+      @public
+      @param {String} payloadType type from payload
+      @return {String} modelName
+    */
+    modelNameFromPayloadType(payloadType) {
+      return singularize(normalizeModelName(payloadType));
+    },
+
+    /**
+      `payloadTypeFromModelName` can be used to change the mapping for the type in
+      the payload, taken from the model name.
+
+      Say your API namespaces the type of a model and expects the following
+      payload when you update the `post` model, which has a polymorphic `user`
+      relationship:
+
+      ```javascript
+      // POST /api/posts/1
+      {
+        "post": {
+          "id": 1,
+          "user": 1,
+          "userType": "api::v1::administrator"
+        }
+      }
+      ```
+
+      By overwriting `payloadTypeFromModelName` you can specify that the
+      namespaces model name for the `administrator` should be used:
+
+      ```app/serializers/application.js
+      import DS from 'ember-data';
+
+      export default DS.RESTSerializer.extend({
+        payloadTypeFromModelName(modelName) {
+          return 'api::v1::' + modelName;
+        }
+      });
+      ```
+
+      By default the payload type is the camelized model name. Usually, Ember
+      Data can use the correct inflection to do this for you. Most of the time,
+      you won't need to override `payloadTypeFromModelName` for this purpose.
+
+      Also take a look at
+      [modelNameFromPayloadType](#method_modelNameFromPayloadType) to customize
+      how the model name from should be mapped from the payload.
+
+      @method payloadTypeFromModelName
+      @public
+      @param {String} modelName modelName from the record
+      @return {String} payloadType
+    */
+    payloadTypeFromModelName(modelName) {
+      return camelize(modelName);
+    },
+
+    _hasCustomModelNameFromPayloadKey() {
+      return this.modelNameFromPayloadKey !== RESTSerializer.prototype.modelNameFromPayloadKey;
+    },
+
+    _hasCustomModelNameFromPayloadType() {
+      return this.modelNameFromPayloadType !== RESTSerializer.prototype.modelNameFromPayloadType;
+    },
+
+    _hasCustomPayloadTypeFromModelName() {
+      return this.payloadTypeFromModelName !== RESTSerializer.prototype.payloadTypeFromModelName;
+    },
+
+    _hasCustomPayloadKeyFromModelName() {
+      return this.payloadKeyFromModelName !== RESTSerializer.prototype.payloadKeyFromModelName;
+    }
+
+  });
+
+}
+
+if (DEBUG) {
   RESTSerializer.reopen({
     warnMessageNoModelForKey(prop, typeKey) {
       return 'Encountered "' + prop + '" in payload, but no model was found for model name "' + typeKey + '" (resolved model name using ' + this.constructor.toString() + '.modelNameFromPayloadKey("' + prop + '"))';
     }
   });
-});
+}
 
 export default RESTSerializer;

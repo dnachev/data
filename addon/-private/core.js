@@ -6,7 +6,7 @@ import VERSION from 'ember-data/version';
 */
 
 /**
-  All Ember Data methods and functions are defined inside of this namespace.
+  All Ember Data classes, methods and functions are defined inside of this namespace.
 
   @class DS
   @static
@@ -17,8 +17,9 @@ import VERSION from 'ember-data/version';
   @type String
   @static
 */
-var DS = Ember.Namespace.create({
-  VERSION: VERSION
+const DS = Ember.Namespace.create({
+  VERSION: VERSION,
+  name: "DS"
 });
 
 if (Ember.libraries) {

@@ -1,3 +1,5 @@
+/*eslint no-unused-vars: ["error", { "varsIgnorePattern": "(adam|dave|cersei)" }]*/
+
 import setupStore from 'dummy/tests/helpers/store';
 import Ember from 'ember';
 
@@ -15,6 +17,7 @@ module("integration/deletedRecord - Deleting Records", {
     Person = DS.Model.extend({
       name: attr('string')
     });
+    Person.toString = () => { return 'Person'; };
 
     env = setupStore({
       person: Person
@@ -28,7 +31,7 @@ module("integration/deletedRecord - Deleting Records", {
   }
 });
 
-test("records should not be removed from record arrays just after deleting, but only after commiting them", function(assert) {
+test("records should not be removed from record arrays just after deleting, but only after committing them", function(assert) {
   var adam, dave;
 
   env.adapter.deleteRecord = function() {
@@ -68,6 +71,67 @@ test("records should not be removed from record arrays just after deleting, but 
   Ember.run(adam, 'save');
 
   assert.equal(all.get('length'), 1, '1 record in array after deleteRecord and save');
+});
+
+test('deleting a record that is part of a hasMany removes it from the hasMany recordArray', function(assert) {
+  let group;
+  let person;
+  const Group = DS.Model.extend({
+    people: DS.hasMany('person', { inverse: null, async: false })
+  });
+  Group.toString = () => { return 'Group'; }
+
+  env.adapter.deleteRecord = function() {
+    return Ember.RSVP.Promise.resolve();
+  };
+
+  env.registry.register('model:group', Group);
+
+  run(function() {
+    env.store.push({
+      data: {
+        type: 'group',
+        id: '1',
+        relationships: {
+          people: {
+            data: [
+              { type: 'person', id: '1' },
+              { type: 'person', id: '2' }
+            ]
+          }
+        }
+      },
+      included: [
+        {
+          type: 'person',
+          id: '1',
+          attributes: {
+            name: 'Adam Sunderland'
+          }
+        },
+        {
+          type: 'person',
+          id: '2',
+          attributes: {
+            name: 'Dave Sunderland'
+          }
+        }
+      ]
+    });
+
+    group = env.store.peekRecord('group', '1');
+    person = env.store.peekRecord('person', '1');
+  });
+
+  // Sanity Check we are in the correct state.
+  assert.equal(group.get('people.length'), 2, 'expected 2 related records before delete');
+  assert.equal(person.get('name'), 'Adam Sunderland', 'expected related records to be loaded');
+
+  run(function() {
+    person.destroyRecord();
+  });
+
+  assert.equal(group.get('people.length'), 1, 'expected 1 related records after delete');
 });
 
 test("records can be deleted during record array enumeration", function(assert) {
@@ -170,7 +234,7 @@ test("Deleting an invalid newly created record should remove it from the store",
   run(function() {
     record = store.createRecord('person', { name: 'pablobm' });
     // Invalidate the record to put it in the `root.loaded.created.invalid` state
-    record.save().catch(Ember.K);
+    record.save().catch(() => {});
   });
 
   // Preconditions
@@ -210,7 +274,7 @@ test("Destroying an invalid newly created record should remove it from the store
   run(function() {
     record = store.createRecord('person', { name: 'pablobm' });
     // Invalidate the record to put it in the `root.loaded.created.invalid` state
-    record.save().catch(Ember.K);
+    record.save().catch(() => {});
   });
 
   // Preconditions
@@ -224,4 +288,35 @@ test("Destroying an invalid newly created record should remove it from the store
 
   assert.equal(get(record, 'currentState.stateName'), 'root.deleted.saved');
   assert.equal(get(store.peekAll('person'), 'length'), 0, 'The new person should be removed from the store');
+});
+
+test("Will resolve destroy and save in same loop", function(assert) {
+  let adam, dave;
+  let promises;
+
+  assert.expect(1);
+
+  env.adapter.createRecord = function() {
+    assert.ok(true, 'save operation resolves');
+    return Ember.RSVP.Promise.resolve({
+      data: {
+        id: 123,
+        type: 'person'
+      }
+    });
+  };
+
+  run(function() {
+    adam = env.store.createRecord('person', { name: 'Adam Sunderland' });
+    dave = env.store.createRecord('person', { name: 'Dave Sunderland' });
+  });
+
+  run(function() {
+    promises = [
+      adam.destroyRecord(),
+      dave.save()
+    ];
+  });
+
+  return Ember.RSVP.all(promises);
 });

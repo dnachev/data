@@ -1,6 +1,6 @@
 import Ember from 'ember';
-import { assert, warn } from "ember-data/-private/debug";
-import normalizeModelName from "ember-data/-private/system/normalize-model-name";
+import { assert, warn } from '@ember/debug';
+import normalizeModelName from "../normalize-model-name";
 
 /**
   `DS.belongsTo` is used to define One-To-One and One-To-Many
@@ -75,7 +75,7 @@ import normalizeModelName from "ember-data/-private/system/normalize-model-name"
   @return {Ember.computed} relationship
 */
 export default function belongsTo(modelName, options) {
-  var opts, userEnteredModelName;
+  let opts, userEnteredModelName;
   if (typeof modelName === 'object') {
     opts = modelName;
     userEnteredModelName = undefined;
@@ -92,29 +92,30 @@ export default function belongsTo(modelName, options) {
 
   opts = opts || {};
 
-  var meta = {
+  let meta = {
     type: userEnteredModelName,
     isRelationship: true,
     options: opts,
     kind: 'belongsTo',
+    name: 'Belongs To',
     key: null
   };
 
   return Ember.computed({
     get(key) {
       if (opts.hasOwnProperty('serialize')) {
-        warn(`You provided a serialize option on the "${key}" property in the "${this._internalModel.modelName}" class, this belongs in the serializer. See DS.Serializer and it's implementations http://emberjs.com/api/data/classes/DS.Serializer.html`, false, {
+        warn(`You provided a serialize option on the "${key}" property in the "${this._internalModel.modelName}" class, this belongs in the serializer. See DS.Serializer and it's implementations https://emberjs.com/api/data/classes/DS.Serializer.html`, false, {
           id: 'ds.model.serialize-option-in-belongs-to'
         });
       }
 
       if (opts.hasOwnProperty('embedded')) {
-        warn(`You provided an embedded option on the "${key}" property in the "${this._internalModel.modelName}" class, this belongs in the serializer. See DS.EmbeddedRecordsMixin http://emberjs.com/api/data/classes/DS.EmbeddedRecordsMixin.html`, false, {
+        warn(`You provided an embedded option on the "${key}" property in the "${this._internalModel.modelName}" class, this belongs in the serializer. See DS.EmbeddedRecordsMixin https://emberjs.com/api/data/classes/DS.EmbeddedRecordsMixin.html`, false, {
           id: 'ds.model.embedded-option-in-belongs-to'
         });
       }
 
-      return this._internalModel._relationships.get(key).getRecord();
+      return this._internalModel._relationships.get(key).getRecord(userEnteredModelName);
     },
     set(key, value) {
       if (value === undefined) {
@@ -123,22 +124,12 @@ export default function belongsTo(modelName, options) {
       if (value && value.then) {
         this._internalModel._relationships.get(key).setRecordPromise(value);
       } else if (value) {
-        this._internalModel._relationships.get(key).setRecord(value._internalModel);
+        this._internalModel._relationships.get(key).setInternalModel(value._internalModel);
       } else {
-        this._internalModel._relationships.get(key).setRecord(value);
+        this._internalModel._relationships.get(key).setInternalModel(value);
       }
 
       return this._internalModel._relationships.get(key).getRecord();
     }
   }).meta(meta);
 }
-
-/*
-  These observers observe all `belongsTo` relationships on the record. See
-  `relationships/ext` to see how these observers get their dependencies.
-*/
-export const BelongsToMixin = Ember.Mixin.create({
-  notifyBelongsToChanged(key) {
-    this.notifyPropertyChange(key);
-  }
-});

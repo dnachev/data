@@ -3,8 +3,9 @@ bundle
 tmp/
 tests/source/
 dist/
-.idea
 *.iml
+
+benchmarks/results/*.json
 
 .DS_Store
 .project
@@ -22,3 +23,5 @@ node_modules/
 bower_components/
 .metadata_never_index
 npm-debug.log
+
+DEBUG-*

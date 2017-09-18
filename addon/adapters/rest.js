@@ -1,10 +1,14 @@
+/* global heimdall */
 /**
   @module ember-data
 */
 
 import Ember from 'ember';
-import Adapter from "ember-data/adapter";
+import Adapter from "../adapter";
 import {
+  parseResponseHeaders,
+  BuildURLMixin,
+  isEnabled,
   AdapterError,
   InvalidError,
   UnauthorizedError,
@@ -14,16 +18,18 @@ import {
   ServerError,
   TimeoutError,
   AbortError
-} from 'ember-data/adapters/errors';
-import BuildURLMixin from "ember-data/-private/adapters/build-url-mixin";
-import isEnabled from 'ember-data/-private/features';
-import { runInDebug, warn } from 'ember-data/-private/debug';
-import parseResponseHeaders from 'ember-data/-private/utils/parse-response-headers';
+} from '../-private';
+import { instrument } from 'ember-data/-debug';
+import { warn, deprecate } from '@ember/debug';
+import { DEBUG } from '@glimmer/env';
 
 const {
   MapWithDefault,
-  get
+  get,
+  run
 } = Ember;
+
+const Promise = Ember.RSVP.Promise;
 
 /**
   The REST adapter allows your store to communicate with an HTTP server by
@@ -64,7 +70,7 @@ const {
 
   ```js
   {
-    "post": {
+    "posts": {
       "id": 1,
       "title": "I'm Running to Reform the W3C's Tag",
       "author": "Yehuda Katz"
@@ -119,11 +125,56 @@ const {
 
   ```js
   {
-    "person": {
+    "people": {
       "id": 5,
-      "firstName": "Barack",
-      "lastName": "Obama",
+      "firstName": "Zaphod",
+      "lastName": "Beeblebrox",
       "occupation": "President"
+    }
+  }
+  ```
+
+  #### Relationships
+
+  Relationships are usually represented by ids to the record in the
+  relationship. The related records can then be sideloaded in the
+  response under a key for the type.
+
+  ```js
+  {
+    "posts": {
+      "id": 5,
+      "title": "I'm Running to Reform the W3C's Tag",
+      "author": "Yehuda Katz",
+      "comments": [1, 2]
+    },
+    "comments": [{
+      "id": 1,
+      "author": "User 1",
+      "message": "First!",
+    }, {
+      "id": 2,
+      "author": "User 2",
+      "message": "Good Luck!",
+    }]
+  }
+  ```
+
+  If the records in the relationship are not known when the response
+  is serialized its also possible to represent the relationship as a
+  url using the `links` key in the response. Ember Data will fetch
+  this url to resolve the relationship when it is accessed for the
+  first time.
+
+  ```js
+  {
+    "posts": {
+      "id": 5,
+      "title": "I'm Running to Reform the W3C's Tag",
+      "author": "Yehuda Katz",
+      "links": {
+        "comments": "/posts/5/comments"
+      }
     }
   }
   ```
@@ -186,8 +237,8 @@ const {
 
   export default DS.RESTAdapter.extend({
     headers: {
-      "API_KEY": "secret key",
-      "ANOTHER_HEADER": "Some header value"
+      'API_KEY': 'secret key',
+      'ANOTHER_HEADER': 'Some header value'
     }
   });
   ```
@@ -202,8 +253,8 @@ const {
   export default DS.RESTAdapter.extend({
     headers: Ember.computed('session.authToken', function() {
       return {
-        "API_KEY": this.get("session.authToken"),
-        "ANOTHER_HEADER": "Some header value"
+        'API_KEY': this.get('session.authToken'),
+        'ANOTHER_HEADER': 'Some header value'
       };
     })
   });
@@ -222,8 +273,8 @@ const {
   export default DS.RESTAdapter.extend({
     headers: Ember.computed(function() {
       return {
-        "API_KEY": Ember.get(document.cookie.match(/apiKey\=([^;]*)/), "1"),
-        "ANOTHER_HEADER": "Some header value"
+        'API_KEY': Ember.get(document.cookie.match(/apiKey\=([^;]*)/), '1'),
+        'ANOTHER_HEADER': 'Some header value'
       };
     }).volatile()
   });
@@ -235,7 +286,7 @@ const {
   @extends DS.Adapter
   @uses DS.BuildURLMixin
 */
-var RESTAdapter = Adapter.extend(BuildURLMixin, {
+const RESTAdapter = Adapter.extend(BuildURLMixin, {
   defaultSerializer: '-rest',
 
   /**
@@ -245,7 +296,7 @@ var RESTAdapter = Adapter.extend(BuildURLMixin, {
     For example:
 
     ```js
-      store.query('posts', { sort: 'price', category: 'pets' });
+    store.query('posts', { sort: 'price', category: 'pets' });
     ```
 
     will generate a requests like this `/posts?category=pets&sort=price`, even if the
@@ -263,13 +314,14 @@ var RESTAdapter = Adapter.extend(BuildURLMixin, {
     import DS from 'ember-data';
 
     export default DS.RESTAdapter.extend({
-      sortQueryParams: function(params) {
-        var sortedKeys = Object.keys(params).sort().reverse();
-        var len = sortedKeys.length, newParams = {};
+      sortQueryParams(params) {
+        let sortedKeys = Object.keys(params).sort().reverse();
+        let len = sortedKeys.length, newParams = {};
 
-        for (var i = 0; i < len; i++) {
+        for (let i = 0; i < len; i++) {
           newParams[sortedKeys[i]] = params[sortedKeys[i]];
         }
+
         return newParams;
       }
     });
@@ -280,15 +332,15 @@ var RESTAdapter = Adapter.extend(BuildURLMixin, {
     @return {Object}
   */
   sortQueryParams(obj) {
-    var keys = Object.keys(obj);
-    var len = keys.length;
+    let keys = Object.keys(obj);
+    let len = keys.length;
     if (len < 2) {
       return obj;
     }
-    var newQueryParams = {};
-    var sortedKeys = keys.sort();
+    let newQueryParams = {};
+    let sortedKeys = keys.sort();
 
-    for (var i = 0; i < len; i++) {
+    for (let i = 0; i < len; i++) {
       newQueryParams[sortedKeys[i]] = obj[sortedKeys[i]];
     }
     return newQueryParams;
@@ -390,8 +442,8 @@ var RESTAdapter = Adapter.extend(BuildURLMixin, {
 
     export default DS.RESTAdapter.extend({
       headers: {
-        "API_KEY": "secret key",
-        "ANOTHER_HEADER": "Some header value"
+        'API_KEY': 'secret key',
+        'ANOTHER_HEADER': 'Some header value'
       }
     });
     ```
@@ -409,6 +461,7 @@ var RESTAdapter = Adapter.extend(BuildURLMixin, {
 
     This method performs an HTTP `GET` request with the id provided as part of the query string.
 
+    @since 1.13.0
     @method findRecord
     @param {DS.Store} store
     @param {DS.Model} type
@@ -417,16 +470,16 @@ var RESTAdapter = Adapter.extend(BuildURLMixin, {
     @return {Promise} promise
   */
   findRecord(store, type, id, snapshot) {
-    if (isEnabled('ds-improved-ajax')) {
-      const request = this._requestFor({
+    if (isEnabled('ds-improved-ajax') && !this._hasCustomizedAjax()) {
+      let request = this._requestFor({
         store, type, id, snapshot,
         requestType: 'findRecord'
       });
 
       return this._makeRequest(request);
     } else {
-      const url = this.buildURL(type.modelName, id, snapshot, 'findRecord');
-      const query = this.buildQuery(snapshot);
+      let url = this.buildURL(type.modelName, id, snapshot, 'findRecord');
+      let query = this.buildQuery(snapshot);
 
       return this.ajax(url, 'GET', { data: query });
     }
@@ -447,10 +500,10 @@ var RESTAdapter = Adapter.extend(BuildURLMixin, {
     @return {Promise} promise
   */
   findAll(store, type, sinceToken, snapshotRecordArray) {
-    const query = this.buildQuery(snapshotRecordArray);
+    let query = this.buildQuery(snapshotRecordArray);
 
-    if (isEnabled('ds-improved-ajax')) {
-      const request = this._requestFor({
+    if (isEnabled('ds-improved-ajax') && !this._hasCustomizedAjax()) {
+      let request = this._requestFor({
         store, type, sinceToken, query,
         snapshots: snapshotRecordArray,
         requestType: 'findAll'
@@ -458,7 +511,7 @@ var RESTAdapter = Adapter.extend(BuildURLMixin, {
 
       return this._makeRequest(request);
     } else {
-      const url = this.buildURL(type.modelName, null, snapshotRecordArray, 'findAll');
+      let url = this.buildURL(type.modelName, null, snapshotRecordArray, 'findAll');
 
       if (sinceToken) {
         query.since = sinceToken;
@@ -486,15 +539,15 @@ var RESTAdapter = Adapter.extend(BuildURLMixin, {
     @return {Promise} promise
   */
   query(store, type, query) {
-    if (isEnabled('ds-improved-ajax')) {
-      const request = this._requestFor({
+    if (isEnabled('ds-improved-ajax') && !this._hasCustomizedAjax()) {
+      let request = this._requestFor({
         store, type, query,
         requestType: 'query'
       });
 
       return this._makeRequest(request);
     } else {
-      var url = this.buildURL(type.modelName, null, null, 'query', query);
+      let url = this.buildURL(type.modelName, null, null, 'query', query);
 
       if (this.sortQueryParams) {
         query = this.sortQueryParams(query);
@@ -515,6 +568,7 @@ var RESTAdapter = Adapter.extend(BuildURLMixin, {
     The `query` argument is a simple JavaScript object that will be passed directly
     to the server as parameters.
 
+    @since 1.13.0
     @method queryRecord
     @param {DS.Store} store
     @param {DS.Model} type
@@ -522,15 +576,15 @@ var RESTAdapter = Adapter.extend(BuildURLMixin, {
     @return {Promise} promise
   */
   queryRecord(store, type, query) {
-    if (isEnabled('ds-improved-ajax')) {
-      const request = this._requestFor({
+    if (isEnabled('ds-improved-ajax') && !this._hasCustomizedAjax()) {
+      let request = this._requestFor({
         store, type, query,
         requestType: 'queryRecord'
       });
 
       return this._makeRequest(request);
     } else {
-      var url = this.buildURL(type.modelName, null, null, 'queryRecord', query);
+      let url = this.buildURL(type.modelName, null, null, 'queryRecord', query);
 
       if (this.sortQueryParams) {
         query = this.sortQueryParams(query);
@@ -574,15 +628,15 @@ var RESTAdapter = Adapter.extend(BuildURLMixin, {
     @return {Promise} promise
   */
   findMany(store, type, ids, snapshots) {
-    if (isEnabled('ds-improved-ajax')) {
-      const request = this._requestFor({
+    if (isEnabled('ds-improved-ajax') && !this._hasCustomizedAjax()) {
+      let request = this._requestFor({
         store, type, ids, snapshots,
         requestType: 'findMany'
       });
 
       return this._makeRequest(request);
     } else {
-      var url = this.buildURL(type.modelName, ids, snapshots, 'findMany');
+      let url = this.buildURL(type.modelName, ids, snapshots, 'findMany');
       return this.ajax(url, 'GET', { data: { ids: ids } });
     }
   },
@@ -620,19 +674,20 @@ var RESTAdapter = Adapter.extend(BuildURLMixin, {
     @param {DS.Store} store
     @param {DS.Snapshot} snapshot
     @param {String} url
+    @param {Object} relationship meta object describing the relationship
     @return {Promise} promise
   */
   findHasMany(store, snapshot, url, relationship) {
-    if (isEnabled('ds-improved-ajax')) {
-      const request = this._requestFor({
+    if (isEnabled('ds-improved-ajax') && !this._hasCustomizedAjax()) {
+      let request = this._requestFor({
         store, snapshot, url, relationship,
         requestType: 'findHasMany'
       });
 
       return this._makeRequest(request);
     } else {
-      var id   = snapshot.id;
-      var type = snapshot.modelName;
+      let id   = snapshot.id;
+      let type = snapshot.modelName;
 
       url = this.urlPrefix(url, this.buildURL(type, id, snapshot, 'findHasMany'));
 
@@ -676,16 +731,16 @@ var RESTAdapter = Adapter.extend(BuildURLMixin, {
     @return {Promise} promise
   */
   findBelongsTo(store, snapshot, url, relationship) {
-    if (isEnabled('ds-improved-ajax')) {
-      const request = this._requestFor({
+    if (isEnabled('ds-improved-ajax') && !this._hasCustomizedAjax()) {
+      let request = this._requestFor({
         store, snapshot, url, relationship,
         requestType: 'findBelongsTo'
       });
 
       return this._makeRequest(request);
     } else {
-      var id   = snapshot.id;
-      var type = snapshot.modelName;
+      let id   = snapshot.id;
+      let type = snapshot.modelName;
 
       url = this.urlPrefix(url, this.buildURL(type, id, snapshot, 'findBelongsTo'));
       return this.ajax(url, 'GET');
@@ -709,17 +764,17 @@ var RESTAdapter = Adapter.extend(BuildURLMixin, {
     @return {Promise} promise
   */
   createRecord(store, type, snapshot) {
-    if (isEnabled('ds-improved-ajax')) {
-      const request = this._requestFor({
+    if (isEnabled('ds-improved-ajax') && !this._hasCustomizedAjax()) {
+      let request = this._requestFor({
         store, type, snapshot,
         requestType: 'createRecord'
       });
 
       return this._makeRequest(request);
     } else {
-      var data = {};
-      var serializer = store.serializerFor(type.modelName);
-      var url = this.buildURL(type.modelName, null, snapshot, 'createRecord');
+      let data = {};
+      let serializer = store.serializerFor(type.modelName);
+      let url = this.buildURL(type.modelName, null, snapshot, 'createRecord');
 
       serializer.serializeIntoHash(data, type, snapshot, { includeId: true });
 
@@ -744,21 +799,21 @@ var RESTAdapter = Adapter.extend(BuildURLMixin, {
     @return {Promise} promise
   */
   updateRecord(store, type, snapshot) {
-    if (isEnabled('ds-improved-ajax')) {
-      const request = this._requestFor({
+    if (isEnabled('ds-improved-ajax') && !this._hasCustomizedAjax()) {
+      let request = this._requestFor({
         store, type, snapshot,
         requestType: 'updateRecord'
       });
 
       return this._makeRequest(request);
     } else {
-      var data = {};
-      var serializer = store.serializerFor(type.modelName);
+      let data = {};
+      let serializer = store.serializerFor(type.modelName);
 
       serializer.serializeIntoHash(data, type, snapshot);
 
-      var id = snapshot.id;
-      var url = this.buildURL(type.modelName, id, snapshot, 'updateRecord');
+      let id = snapshot.id;
+      let url = this.buildURL(type.modelName, id, snapshot, 'updateRecord');
 
       return this.ajax(url, "PUT", { data: data });
     }
@@ -776,28 +831,32 @@ var RESTAdapter = Adapter.extend(BuildURLMixin, {
     @return {Promise} promise
   */
   deleteRecord(store, type, snapshot) {
-    if (isEnabled('ds-improved-ajax')) {
-      const request = this._requestFor({
+    if (isEnabled('ds-improved-ajax') && !this._hasCustomizedAjax()) {
+      let request = this._requestFor({
         store, type, snapshot,
         requestType: 'deleteRecord'
       });
 
       return this._makeRequest(request);
     } else {
-      var id = snapshot.id;
+      let id = snapshot.id;
 
       return this.ajax(this.buildURL(type.modelName, id, snapshot, 'deleteRecord'), "DELETE");
     }
   },
 
   _stripIDFromURL(store, snapshot) {
-    var url = this.buildURL(snapshot.modelName, snapshot.id, snapshot);
+    let url = this.buildURL(snapshot.modelName, snapshot.id, snapshot);
 
-    var expandedURL = url.split('/');
-    //Case when the url is of the format ...something/:id
-    var lastSegment = expandedURL[expandedURL.length - 1];
-    var id = snapshot.id;
-    if (lastSegment === id) {
+    let expandedURL = url.split('/');
+    // Case when the url is of the format ...something/:id
+    // We are decodeURIComponent-ing the lastSegment because if it represents
+    // the id, it has been encodeURIComponent-ified within `buildURL`. If we
+    // don't do this, then records with id having special characters are not
+    // coalesced correctly (see GH #4190 for the reported bug)
+    let lastSegment = expandedURL[expandedURL.length - 1];
+    let id = snapshot.id;
+    if (decodeURIComponent(lastSegment) === id) {
       expandedURL[expandedURL.length - 1] = "";
     } else if (endsWith(lastSegment, '?id=' + id)) {
       //Case when the url is of the format ...something?id=:id
@@ -833,22 +892,22 @@ var RESTAdapter = Adapter.extend(BuildURLMixin, {
                       loaded separately by `findMany`.
   */
   groupRecordsForFindMany(store, snapshots) {
-    var groups = MapWithDefault.create({ defaultValue() { return []; } });
-    var adapter = this;
-    var maxURLLength = this.maxURLLength;
+    let groups = MapWithDefault.create({ defaultValue() { return []; } });
+    let adapter = this;
+    let maxURLLength = this.maxURLLength;
 
     snapshots.forEach((snapshot) => {
-      var baseUrl = adapter._stripIDFromURL(store, snapshot);
+      let baseUrl = adapter._stripIDFromURL(store, snapshot);
       groups.get(baseUrl).push(snapshot);
     });
 
     function splitGroupToFitInUrl(group, maxURLLength, paramNameLength) {
-      var baseUrl = adapter._stripIDFromURL(store, group[0]);
-      var idsSize = 0;
-      var splitGroups = [[]];
+      let idsSize = 0;
+      let baseUrl = adapter._stripIDFromURL(store, group[0]);
+      let splitGroups = [[]];
 
       group.forEach((snapshot) => {
-        var additionalLength = encodeURIComponent(snapshot.id).length + paramNameLength;
+        let additionalLength = encodeURIComponent(snapshot.id).length + paramNameLength;
         if (baseUrl.length + idsSize + additionalLength >= maxURLLength) {
           idsSize = 0;
           splitGroups.push([]);
@@ -856,17 +915,17 @@ var RESTAdapter = Adapter.extend(BuildURLMixin, {
 
         idsSize += additionalLength;
 
-        var lastGroupIndex = splitGroups.length - 1;
+        let lastGroupIndex = splitGroups.length - 1;
         splitGroups[lastGroupIndex].push(snapshot);
       });
 
       return splitGroups;
     }
 
-    var groupsArray = [];
+    let groupsArray = [];
     groups.forEach((group, key) => {
-      var paramNameLength = '&ids%5B%5D='.length;
-      var splitGroups = splitGroupToFitInUrl(group, maxURLLength, paramNameLength);
+      let paramNameLength = '&ids%5B%5D='.length;
+      let splitGroups = splitGroupToFitInUrl(group, maxURLLength, paramNameLength);
 
       splitGroups.forEach((splitGroup) => groupsArray.push(splitGroup));
     });
@@ -895,6 +954,7 @@ var RESTAdapter = Adapter.extend(BuildURLMixin, {
     returned from the server using the serializer's `extractErrors`
     method.
 
+    @since 1.13.0
     @method handleResponse
     @param  {Number} status
     @param  {Object} headers
@@ -914,18 +974,18 @@ var RESTAdapter = Adapter.extend(BuildURLMixin, {
 
     if (isEnabled('ds-extended-errors')) {
       switch (status) {
-      case 401:
-        return new UnauthorizedError(errors, detailedMessage);
-      case 403:
-        return new ForbiddenError(errors, detailedMessage);
-      case 404:
-        return new NotFoundError(errors, detailedMessage);
-      case 409:
-        return new ConflictError(errors, detailedMessage);
-      default:
-        if (status >= 500) {
-          return new ServerError(errors, detailedMessage);
-        }
+        case 401:
+          return new UnauthorizedError(errors, detailedMessage);
+        case 403:
+          return new ForbiddenError(errors, detailedMessage);
+        case 404:
+          return new NotFoundError(errors, detailedMessage);
+        case 409:
+          return new ConflictError(errors, detailedMessage);
+        default:
+          if (status >= 500) {
+            return new ServerError(errors, detailedMessage);
+          }
       }
     }
 
@@ -936,6 +996,7 @@ var RESTAdapter = Adapter.extend(BuildURLMixin, {
     Default `handleResponse` implementation uses this hook to decide if the
     response is a success.
 
+    @since 1.13.0
     @method isSuccess
     @param  {Number} status
     @param  {Object} headers
@@ -948,8 +1009,9 @@ var RESTAdapter = Adapter.extend(BuildURLMixin, {
 
   /**
     Default `handleResponse` implementation uses this hook to decide if the
-    response is a an invalid error.
+    response is an invalid error.
 
+    @since 1.13.0
     @method isInvalid
     @param  {Number} status
     @param  {Object} headers
@@ -985,59 +1047,31 @@ var RESTAdapter = Adapter.extend(BuildURLMixin, {
     @return {Promise} promise
   */
   ajax(url, type, options) {
-    var adapter = this;
+    let token = heimdall.start('adapter.ajax');
+    let adapter = this;
 
-    var requestData = {
+    let requestData = {
       url:    url,
       method: type
     };
 
-    return new Ember.RSVP.Promise(function(resolve, reject) {
-      var hash = adapter.ajaxOptions(url, type, options);
+    return new Promise(function(resolve, reject) {
+      let hash = adapter.ajaxOptions(url, type, options);
 
       hash.success = function(payload, textStatus, jqXHR) {
-
-        let response = adapter.handleResponse(
-          jqXHR.status,
-          parseResponseHeaders(jqXHR.getAllResponseHeaders()),
-          payload,
-          requestData
-        );
-
-        if (response && response.isAdapterError) {
-          Ember.run.join(null, reject, response);
-        } else {
-          Ember.run.join(null, resolve, response);
-        }
+        heimdall.stop(token);
+        let response = ajaxSuccess(adapter, jqXHR, payload, requestData);
+        run.join(null, resolve, response);
       };
 
       hash.error = function(jqXHR, textStatus, errorThrown) {
-        runInDebug(function() {
-          let message = `The server returned an empty string for ${type} ${url}, which cannot be parsed into a valid JSON. Return either null or {}.`;
-          let validJSONString = !(textStatus === "parsererror" && jqXHR.responseText === "");
-          warn(message, validJSONString, {
-            id: 'ds.adapter.returned-empty-string-as-JSON'
-          });
-        });
-
-        let error;
-
-        if (errorThrown instanceof Error) {
-          error = errorThrown;
-        } else if (textStatus === 'timeout') {
-          error = new TimeoutError();
-        } else if (textStatus === 'abort') {
-          error = new AbortError();
-        } else {
-          error = adapter.handleResponse(
-            jqXHR.status,
-            parseResponseHeaders(jqXHR.getAllResponseHeaders()),
-            adapter.parseErrorResponse(jqXHR.responseText) || errorThrown,
-            requestData
-          );
-        }
-
-        Ember.run.join(null, reject, error);
+        heimdall.stop(token);
+        let responseData = {
+          textStatus,
+          errorThrown
+        };
+        let error = ajaxError(adapter, jqXHR, requestData, responseData);
+        run.join(null, reject, error);
       };
 
       adapter._ajaxRequest(hash);
@@ -1062,18 +1096,34 @@ var RESTAdapter = Adapter.extend(BuildURLMixin, {
     @return {Object}
   */
   ajaxOptions(url, type, options) {
-    var hash = options || {};
+    let hash = options || {};
     hash.url = url;
     hash.type = type;
     hash.dataType = 'json';
     hash.context = this;
+
+    instrument(function() {
+      hash.converters = {
+        'text json': function(payload) {
+          let token = heimdall.start('json.parse');
+          let json;
+          try {
+            json = Ember.$.parseJSON(payload);
+          } catch (e) {
+            json = payload;
+          }
+          heimdall.stop(token);
+          return json;
+        }
+      };
+    });
 
     if (hash.data && type !== 'GET') {
       hash.contentType = 'application/json; charset=utf-8';
       hash.data = JSON.stringify(hash.data);
     }
 
-    var headers = get(this, 'headers');
+    let headers = get(this, 'headers');
     if (headers !== undefined) {
       hash.beforeSend = function (xhr) {
         Object.keys(headers).forEach((key) =>  xhr.setRequestHeader(key, headers[key]));
@@ -1090,11 +1140,13 @@ var RESTAdapter = Adapter.extend(BuildURLMixin, {
     @return {Object}
   */
   parseErrorResponse(responseText) {
-    var json = responseText;
+    let json = responseText;
 
     try {
       json = Ember.$.parseJSON(responseText);
-    } catch (e) {}
+    } catch (e) {
+      // ignored
+    }
 
     return json;
   },
@@ -1134,8 +1186,8 @@ var RESTAdapter = Adapter.extend(BuildURLMixin, {
     @return {String} detailed error message
   */
   generatedDetailedMessage: function(status, headers, payload, requestData) {
-    var shortenedPayload;
-    var payloadContentType = headers["Content-Type"] || "Empty Content-Type";
+    let shortenedPayload;
+    let payloadContentType = headers["Content-Type"] || "Empty Content-Type";
 
     if (payloadContentType === "text/html" && payload.length > 250) {
       shortenedPayload = "[Omitted Lengthy HTML]";
@@ -1143,19 +1195,20 @@ var RESTAdapter = Adapter.extend(BuildURLMixin, {
       shortenedPayload = payload;
     }
 
-    var requestDescription = requestData.method + ' ' + requestData.url;
-    var payloadDescription = 'Payload (' + payloadContentType + ')';
+    let requestDescription = requestData.method + ' ' + requestData.url;
+    let payloadDescription = 'Payload (' + payloadContentType + ')';
 
     return ['Ember Data Request ' + requestDescription + ' returned a ' + status,
             payloadDescription,
             shortenedPayload].join('\n');
   },
 
+  // @since 2.5.0
   buildQuery(snapshot) {
     let query = {};
 
     if (snapshot) {
-      const { include } = snapshot;
+      let { include } = snapshot;
 
       if (include) {
         query.include = include;
@@ -1163,6 +1216,26 @@ var RESTAdapter = Adapter.extend(BuildURLMixin, {
     }
 
     return query;
+  },
+
+  _hasCustomizedAjax() {
+    if (this.ajax !== RESTAdapter.prototype.ajax) {
+      deprecate('RESTAdapter#ajax has been deprecated please use. `methodForRequest`, `urlForRequest`, `headersForRequest` or `dataForRequest` instead.', false, {
+        id: 'ds.rest-adapter.ajax',
+        until: '3.0.0'
+      });
+      return true;
+    }
+
+    if (this.ajaxOptions !== RESTAdapter.prototype.ajaxOptions) {
+      deprecate('RESTAdapter#ajaxOptions has been deprecated please use. `methodForRequest`, `urlForRequest`, `headersForRequest` or `dataForRequest` instead.', false, {
+        id: 'ds.rest-adapter.ajax-options',
+        until: '3.0.0'
+      });
+      return true;
+    }
+
+    return false;
   }
 });
 
@@ -1179,13 +1252,13 @@ if (isEnabled('ds-improved-ajax')) {
      * @return {Object} data
      */
     dataForRequest(params) {
-      var { store, type, snapshot, requestType, query } = params;
+      let { store, type, snapshot, requestType, query } = params;
 
       // type is not passed to findBelongsTo and findHasMany
       type = type || (snapshot && snapshot.type);
 
-      var serializer = store.serializerFor(type.modelName);
-      var data = {};
+      let serializer = store.serializerFor(type.modelName);
+      let data = {};
 
       switch (requestType) {
         case 'createRecord':
@@ -1237,7 +1310,7 @@ if (isEnabled('ds-improved-ajax')) {
      * @return {String} HTTP method
      */
     methodForRequest(params) {
-      const { requestType } = params;
+      let { requestType } = params;
 
       switch (requestType) {
         case 'createRecord': return 'POST';
@@ -1257,7 +1330,7 @@ if (isEnabled('ds-improved-ajax')) {
      * @return {String} URL
      */
     urlForRequest(params) {
-      var { type, id, ids, snapshot, snapshots, requestType, query } = params;
+      let { type, id, ids, snapshot, snapshots, requestType, query } = params;
 
       // type and id are not passed from updateRecord and deleteRecord, hence they
       // are defined if not set
@@ -1276,9 +1349,10 @@ if (isEnabled('ds-improved-ajax')) {
           return this.buildURL(type.modelName, ids, snapshots, requestType);
 
         case 'findHasMany':
-        case 'findBelongsTo':
+        case 'findBelongsTo': {
           let url = this.buildURL(type.modelName, id, snapshot, requestType);
           return this.urlPrefix(params.url, url);
+        }
       }
 
       return this.buildURL(type.modelName, id, snapshot, requestType, query);
@@ -1308,11 +1382,11 @@ if (isEnabled('ds-improved-ajax')) {
      * @param {Object} params
      * @return {Object} request object
      */
-   _requestFor(params) {
-      const method = this.methodForRequest(params);
-      const url = this.urlForRequest(params);
-      const headers = this.headersForRequest(params);
-      const data = this.dataForRequest(params);
+    _requestFor(params) {
+      let method = this.methodForRequest(params);
+      let url = this.urlForRequest(params);
+      let headers = this.headersForRequest(params);
+      let data = this.dataForRequest(params);
 
       return { method, url, headers, data };
     },
@@ -1326,7 +1400,7 @@ if (isEnabled('ds-improved-ajax')) {
      * @return {Object} jQuery ajax hash
      */
     _requestToJQueryAjaxHash(request) {
-      const hash = {};
+      let hash = {};
 
       hash.type = request.method;
       hash.url = request.url;
@@ -1334,7 +1408,7 @@ if (isEnabled('ds-improved-ajax')) {
       hash.context = this;
 
       if (request.data) {
-        if (request.type !== 'GET') {
+        if (request.method !== 'GET') {
           hash.contentType = 'application/json; charset=utf-8';
           hash.data = JSON.stringify(request.data);
         } else {
@@ -1342,7 +1416,7 @@ if (isEnabled('ds-improved-ajax')) {
         }
       }
 
-      var headers = request.headers;
+      let headers = request.headers;
       if (headers !== undefined) {
         hash.beforeSend = function(xhr) {
           Object.keys(headers).forEach((key) => xhr.setRequestHeader(key, headers[key]));
@@ -1361,57 +1435,46 @@ if (isEnabled('ds-improved-ajax')) {
      * @return {Promise} promise
      */
     _makeRequest(request) {
-      const adapter = this;
-      const hash = this._requestToJQueryAjaxHash(request);
+      let token = heimdall.start('adapter._makeRequest');
+      let adapter = this;
+      let hash = this._requestToJQueryAjaxHash(request);
 
-      const { method, url } = request;
-      const requestData = { method, url };
+      let { method, url } = request;
+      let requestData = { method, url };
 
-      return new Ember.RSVP.Promise((resolve, reject) => {
+      return new Promise((resolve, reject) => {
 
         hash.success = function(payload, textStatus, jqXHR) {
-          let response = adapter.handleResponse(
-            jqXHR.status,
-            parseResponseHeaders(jqXHR.getAllResponseHeaders()),
-            payload,
-            requestData
-          );
-
-          if (response instanceof AdapterError) {
-            Ember.run.join(null, reject, response);
-          } else {
-            Ember.run.join(null, resolve, response);
-          }
+          heimdall.stop(token);
+          let response = ajaxSuccess(adapter, jqXHR, payload, requestData);
+          run.join(null, resolve, response);
         };
 
         hash.error = function(jqXHR, textStatus, errorThrown) {
-          runInDebug(function() {
-            let message = `The server returned an empty string for ${method} ${url}, which cannot be parsed into a valid JSON. Return either null or {}.`;
-            let validJSONString = !(textStatus === "parsererror" && jqXHR.responseText === "");
-            warn(message, validJSONString, {
-              id: 'ds.adapter.returned-empty-string-as-JSON'
-            });
-          });
-
-          let error;
-
-          if (errorThrown instanceof Error) {
-            error = errorThrown;
-          } else if (textStatus === 'timeout') {
-            error = new TimeoutError();
-          } else if (textStatus === 'abort') {
-            error = new AbortError();
-          } else {
-            error = adapter.handleResponse(
-              jqXHR.status,
-              parseResponseHeaders(jqXHR.getAllResponseHeaders()),
-              adapter.parseErrorResponse(jqXHR.responseText) || errorThrown,
-              requestData
-            );
-          }
-
-          Ember.run.join(null, reject, error);
+          heimdall.stop(token);
+          let responseData = {
+            textStatus,
+            errorThrown
+          };
+          let error = ajaxError(adapter, jqXHR, requestData, responseData);
+          run.join(null, reject, error);
         };
+
+        instrument(function() {
+          hash.converters = {
+            'text json': function(payload) {
+              let token = heimdall.start('json.parse');
+              let json;
+              try {
+                json = Ember.$.parseJSON(payload);
+              } catch (e) {
+                json = payload;
+              }
+              heimdall.stop(token);
+              return json;
+            }
+          };
+        });
 
         adapter._ajaxRequest(hash);
 
@@ -1419,6 +1482,59 @@ if (isEnabled('ds-improved-ajax')) {
     }
   });
 
+}
+
+function ajaxSuccess(adapter, jqXHR, payload, requestData) {
+  let response;
+  try {
+    response = adapter.handleResponse(
+      jqXHR.status,
+      parseResponseHeaders(jqXHR.getAllResponseHeaders()),
+      payload,
+      requestData
+    );
+  } catch (error) {
+    return Promise.reject(error);
+  }
+
+  if (response && response.isAdapterError) {
+    return Promise.reject(response);
+  } else {
+    return response;
+  }
+}
+
+function ajaxError(adapter, jqXHR, requestData, responseData) {
+  if (DEBUG) {
+    let message = `The server returned an empty string for ${requestData.method} ${requestData.url}, which cannot be parsed into a valid JSON. Return either null or {}.`;
+    let validJSONString = !(responseData.textStatus === "parsererror" && jqXHR.responseText === "");
+    warn(message, validJSONString, {
+      id: 'ds.adapter.returned-empty-string-as-JSON'
+    });
+  }
+
+  let error;
+
+  if (responseData.errorThrown instanceof Error) {
+    error = responseData.errorThrown;
+  } else if (responseData.textStatus === 'timeout') {
+    error = new TimeoutError();
+  } else if (responseData.textStatus === 'abort' || jqXHR.status === 0) {
+    error = new AbortError();
+  } else {
+    try {
+      error = adapter.handleResponse(
+        jqXHR.status,
+        parseResponseHeaders(jqXHR.getAllResponseHeaders()),
+        adapter.parseErrorResponse(jqXHR.responseText) || responseData.errorThrown,
+        requestData
+      );
+    } catch (e) {
+      error = e;
+    }
+  }
+
+  return error;
 }
 
 //From http://stackoverflow.com/questions/280634/endswith-in-javascript

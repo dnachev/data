@@ -1,9 +1,21 @@
 import Ember from 'ember';
 
-var get = Ember.get;
+const {
+  get
+} = Ember;
 
-export function _bind(fn) {
-  var args = Array.prototype.slice.call(arguments, 1);
+const {
+  __bind,
+  __guard,
+  __objectIsAlive
+} = heimdall.registerMonitor('system.store.common',
+  '_bind',
+  '_guard',
+  '_objectIsAlive'
+);
+
+export function _bind(fn, ...args) {
+  heimdall.increment(__bind);
 
   return function() {
     return fn.apply(undefined, args);
@@ -11,7 +23,8 @@ export function _bind(fn) {
 }
 
 export function _guard(promise, test) {
-  var guarded = promise['finally'](function() {
+  heimdall.increment(__guard);
+  let guarded = promise['finally'](function() {
     if (!test()) {
       guarded._subscribers.length = 0;
     }
@@ -21,5 +34,6 @@ export function _guard(promise, test) {
 }
 
 export function _objectIsAlive(object) {
+  heimdall.increment(__objectIsAlive);
   return !(get(object, "isDestroyed") || get(object, "isDestroying"));
 }
