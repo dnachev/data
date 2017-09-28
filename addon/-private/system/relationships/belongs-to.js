@@ -101,6 +101,8 @@ export default function belongsTo(modelName, options) {
     key: null
   };
 
+  let actualModelName = (opts && opts.polymorphic) ? null : userEnteredModelName;
+
   return Ember.computed({
     get(key) {
       if (opts.hasOwnProperty('serialize')) {
@@ -115,7 +117,7 @@ export default function belongsTo(modelName, options) {
         });
       }
 
-      return this._internalModel._relationships.get(key).getRecord();
+      return this._internalModel._relationships.get(key).getRecord(actualModelName);
     },
     set(key, value) {
       if (value === undefined) {
@@ -129,7 +131,8 @@ export default function belongsTo(modelName, options) {
         this._internalModel._relationships.get(key).setInternalModel(value);
       }
 
-      return this._internalModel._relationships.get(key).getRecord();
+      return this._internalModel._relationships.get(key).getRecord(actualModelName);
     }
   }).meta(meta);
 }
+

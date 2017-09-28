@@ -23,6 +23,8 @@ export default RecordArray.extend({
 
     this.set('filterFunction', this.get('filterFunction') || null);
     this.isLoaded = true;
+    // cannot preset isUpdating for filtered arrays
+    this.isUpdating = false;
   },
   /**
     The filterFunction is a function used to test records from the store to

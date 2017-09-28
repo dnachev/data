@@ -62,7 +62,6 @@ const {
   isPresent,
   MapWithDefault,
   run: emberRun,
-  set,
   RSVP,
   Service,
   typeOf
@@ -702,15 +701,15 @@ Store = Service.extend({
     options = options || {};
 
     if (!this.hasRecordForId(normalizedModelName, id)) {
-      return this._findByInternalModel(internalModel, options);
+      return this._findRecordByInternalModel(internalModel, options);
     }
 
-    let fetchedInternalModel = this._findRecord(internalModel, options);
+    let fetchedInternalModel = this._reloadInternalModelIfNeeded(internalModel, options);
 
     return promiseRecord(fetchedInternalModel, `DS: Store#findRecord ${normalizedModelName} with id: ${id}`);
   },
 
-  _findRecord(internalModel, options) {
+  _reloadInternalModelIfNeeded(internalModel, options) {
     // Refetch if the reload option is passed
     if (options.reload) {
       return this._scheduleFetch(internalModel, options);
@@ -737,17 +736,23 @@ Store = Service.extend({
     return Promise.resolve(internalModel);
   },
 
-  _findByInternalModel(internalModel, options = {}) {
-    if (options.preload) {
-      internalModel.preloadData(options.preload);
-    }
-
+  /**
+   * Fetches the record if needed and returns the corresponding record (DS.Model).
+   *
+   * Used by `belongsTo` relationship to materialize a referenced record.
+   * @private
+   */
+  _findRecordByInternalModel(internalModel, options = {}) {
     let fetchedInternalModel = this._findEmptyInternalModel(internalModel, options);
 
     return promiseRecord(fetchedInternalModel, `DS: Store#findRecord ${internalModel.modelName} with id: ${internalModel.id}`);
   },
 
-  _findEmptyInternalModel(internalModel, options) {
+  _findEmptyInternalModel(internalModel, options = {}) {
+    if (options.preload) {
+      internalModel.preloadData(options.preload);
+    }
+
     if (internalModel.isEmpty()) {
       return this._scheduleFetch(internalModel, options);
     }
@@ -1629,14 +1634,14 @@ Store = Service.extend({
     assert(`You tried to load all records but your adapter does not implement 'findAll'`, typeof adapter.findAll === 'function');
 
     if (options.reload) {
-      set(array, 'isUpdating', true);
+      this.recordArrayManager._willUpdateAll(modelName);
       return promiseArray(_findAll(adapter, this, modelName, sinceToken, options));
     }
 
     let snapshotArray = array._createSnapshot(options);
 
     if (adapter.shouldReloadAll(this, snapshotArray)) {
-      set(array, 'isUpdating', true);
+      this.recordArrayManager._willUpdateAll(modelName);
       return promiseArray(_findAll(adapter, this, modelName, sinceToken, options));
     }
 
@@ -1645,7 +1650,7 @@ Store = Service.extend({
     }
 
     if (options.backgroundReload || adapter.shouldBackgroundReloadAll(this, snapshotArray)) {
-      set(array, 'isUpdating', true);
+      this.recordArrayManager._willUpdateAll(modelName);
       _findAll(adapter, this, modelName, sinceToken, options);
     }
 

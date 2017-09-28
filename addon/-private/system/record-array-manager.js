@@ -64,6 +64,7 @@ export default class RecordArrayManager {
     this._filteredRecordArrays = Object.create(null);
     this._liveRecordArrays = Object.create(null);
     this._pending = Object.create(null);
+    this._pendingUpdates = Object.create(null);
     this._adapterPopulatedRecordArrays = [];
   }
 
@@ -106,8 +107,8 @@ export default class RecordArrayManager {
     this._pending = Object.create(null);
     let modelsToRemove = [];
 
-    for (let modelName in pending) {
-      let internalModels = pending[modelName];
+    for (let internalModelName in pending) {
+      let internalModels = pending[internalModelName];
       for (let j = 0; j < internalModels.length; j++) {
         let internalModel = internalModels[j];
         // mark internalModels, so they can once again be processed by the
@@ -120,18 +121,22 @@ export default class RecordArrayManager {
       }
 
       // process filteredRecordArrays
-      if (this._filteredRecordArrays[modelName]) {
-        let recordArrays = this.filteredRecordArraysFor(modelName);
+      if (this._filteredRecordArrays[internalModelName]) {
+        let recordArrays = this.filteredRecordArraysFor(internalModelName);
         for (let i = 0; i < recordArrays.length; i++) {
-          this.updateFilterRecordArray(recordArrays[i], modelName, internalModels);
+          this.updateFilterRecordArray(recordArrays[i], internalModelName, internalModels);
         }
       }
 
-      let array = this._liveRecordArrays[modelName];
-      if (array) {
+      if (this._liveRecordArrays[internalModelName]) {
         // TODO: skip if it only changed
-        // process liveRecordArrays
-        this.updateLiveRecordArray(array, internalModels);
+        let recordArrays = this._liveRecordArrays[internalModelName];
+        let recordModelNames = Object.keys(recordArrays);
+        for (let i = 0; i < recordModelNames.length; i++) {
+          // process liveRecordArrays
+          let array = recordArrays[recordModelNames[i]];
+          this.updateLiveRecordArray(array, internalModels);
+        }
       }
 
       // process adapterPopulatedRecordArrays
@@ -180,11 +185,36 @@ export default class RecordArrayManager {
     if (shouldBeRemoved.length > 0) { array._removeInternalModels(shouldBeRemoved); }
   }
 
+  updateRecordArray(array) {
+    const internalModelName = get(array, 'internalModelName');
+    const pendingUpdatePromise = this._pendingUpdates[internalModelName];
+    if (pendingUpdatePromise) {
+      return pendingUpdatePromise;
+    }
+
+    const arrays = this._liveRecordArrays[internalModelName];
+    setAll(arrays, 'isUpdating', true);
+
+    let updatingPromise = this._updateRecordArray(internalModelName).finally(() => {
+      delete this._pendingUpdates[internalModelName];
+      const arrays = this._liveRecordArrays[internalModelName];
+      setAll(arrays, 'isUpdating', false);
+    });
+
+    this._pendingUpdates[internalModelName] = updatingPromise;
+
+    return updatingPromise;
+  }
+
+  _updateRecordArray(modelName) {
+    return this.store.findAll(modelName, { reload: true });
+  }
+
   // TODO: remove, utilize existing flush code but make it flush sync based on 1 modelName
-  _syncLiveRecordArray(array, modelName) {
-    assert(`recordArrayManger.syncLiveRecordArray expects modelName not modelClass as the second param`, typeof modelName === 'string');
+  _syncLiveRecordArray(array) {
+    const internalModelName = array.internalModelName;
     let hasNoPotentialDeletions = Object.keys(this._pending).length === 0;
-    let map = this.store._internalModelsFor(modelName);
+    let map = this.store._internalModelsFor(internalModelName);
     let hasNoInsertionsOrRemovals = get(map, 'length') === get(array, 'length');
 
     /*
@@ -197,7 +227,7 @@ export default class RecordArrayManager {
       return;
     }
 
-    let internalModels = this._visibleInternalModelsByType(modelName);
+    let internalModels = this._visibleInternalModelsByType(internalModelName);
     let modelsToAdd = [];
     for (let i = 0; i < internalModels.length; i++) {
       let internalModel = internalModels[i];
@@ -232,11 +262,21 @@ export default class RecordArrayManager {
     this.updateFilterRecordArray(array, filter, internalModels);
   }
 
-  _didUpdateAll(modelName) {
-    let recordArray = this._liveRecordArrays[modelName];
-    if (recordArray) {
-      set(recordArray, 'isUpdating', false);
+
+  _willUpdateAll(internalModelName) {
+    const arrays = this._liveRecordArrays[internalModelName];
+    if (arrays) {
+      setAll(arrays, 'isUpdating', true);
     }
+  }
+
+  _didUpdateAll(internalModelName) {
+    let recordArrays = this._liveRecordArrays[internalModelName];
+    if (!recordArrays) {
+      return;
+    }
+    setAll(recordArrays, 'isUpdating', false);
+    delete this._pendingUpdates[internalModelName];
   }
 
   /**
@@ -247,22 +287,23 @@ export default class RecordArrayManager {
     @param {String} modelName
     @return {DS.RecordArray}
   */
-  liveRecordArrayFor(modelName) {
-    assert(`recordArrayManger.liveRecordArrayFor expects modelName not modelClass as the param`, typeof modelName === 'string');
+  liveRecordArrayFor(internalModelName, modelName = internalModelName) {
+    assert(`recordArrayManger.liveRecordArrayFor expects modelName not modelClass as the param`, typeof internalModelName === 'string' && typeof modelName === 'string');
 
     heimdall.increment(liveRecordArrayFor);
 
-    let array = this._liveRecordArrays[modelName];
+    const recordArrays = this._liveRecordArrays[internalModelName];
+    let array = recordArrays && recordArrays[modelName];
 
     if (array) {
       // if the array already exists, synchronize
-      this._syncLiveRecordArray(array, modelName);
+      this._syncLiveRecordArray(array);
     } else {
       // if the array is being newly created merely create it with its initial
       // content already set. This prevents unneeded change events.
-      let internalModels = this._visibleInternalModelsByType(modelName);
-      array = this.createRecordArray(modelName, internalModels);
-      this._liveRecordArrays[modelName] = array;
+      let internalModels = this._visibleInternalModelsByType(internalModelName);
+      array = this.createRecordArray(internalModelName, modelName, internalModels);
+      this.registerLiveRecordArray(array, internalModelName, modelName);
     }
 
     return array;
@@ -302,15 +343,17 @@ export default class RecordArrayManager {
     @param {Array} _content (optional|private)
     @return {DS.RecordArray}
   */
-  createRecordArray(modelName, content) {
-    assert(`recordArrayManger.createRecordArray expects modelName not modelClass as the param`, typeof modelName === 'string');
+  createRecordArray(internalModelName, modelName, content) {
+    assert(`recordArrayManger.createRecordArray expects modelName not modelClass as the param`, typeof internalModelName === 'string' && typeof modelName === 'string');
     heimdall.increment(createRecordArray);
 
     let array = RecordArray.create({
+      internalModelName,
       modelName,
       content: Ember.A(content || []),
       store: this.store,
       isLoaded: true,
+      isUpdating: !!this._pendingUpdates[internalModelName],
       manager: this
     });
 
@@ -409,6 +452,26 @@ export default class RecordArrayManager {
     this.updateFilter(array, modelName, filter);
   }
 
+  registerLiveRecordArray(array, internalModelName, modelName) {
+    let allArrays = this._liveRecordArrays[internalModelName];
+    if (!allArrays) {
+      allArrays = this._liveRecordArrays[internalModelName] = Object.create(null);
+    }
+    allArrays[modelName] = array;
+  }
+
+  unregisterLiveRecordArray(array) {
+    let liveRecordArraysForType = this._liveRecordArrays[array.internalModelName];
+    // unregister live record array
+    if (!liveRecordArraysForType) {
+      return;
+    }
+    let registeredArray = liveRecordArraysForType[array.modelName];
+    if (array === registeredArray) {
+      delete liveRecordArraysForType[array.modelName];
+    }
+  }
+
   /**
     Unregister a RecordArray.
     So manager will not update this array.
@@ -429,20 +492,16 @@ export default class RecordArrayManager {
     let removedFromAdapterPopulated = remove(this._adapterPopulatedRecordArrays, array);
 
     if (!removedFromFiltered && !removedFromAdapterPopulated) {
-
-      let liveRecordArrayForType = this._liveRecordArrays[modelName];
-      // unregister live record array
-      if (liveRecordArrayForType) {
-        if (array === liveRecordArrayForType) {
-          delete this._liveRecordArrays[modelName];
-        }
-      }
+      this.unregisterLiveRecordArray(array);
     }
   }
 
   willDestroy() {
     Object.keys(this._filteredRecordArrays).forEach(modelName => flatten(this._filteredRecordArrays[modelName]).forEach(destroy));
-    Object.keys(this._liveRecordArrays).forEach(modelName => this._liveRecordArrays[modelName].destroy());
+    Object.keys(this._liveRecordArrays).forEach(internalModelName => {
+      let recordsArray = this._liveRecordArrays[internalModelName];
+      Object.keys(recordsArray).forEach((modelName) => recordsArray[modelName].destroy());
+    });
     this._adapterPopulatedRecordArrays.forEach(destroy);
     this.isDestroyed = true;
   }
@@ -479,6 +538,13 @@ function remove(array, item) {
   }
 
   return false;
+}
+
+function setAll(arrays, property, value) {
+  const modelNames = Object.keys(arrays);
+  for (let i = 0; i < modelNames.length; i++) {
+    set(arrays[modelNames[i]], property, value);
+  }
 }
 
 function updateLiveRecordArray(array, internalModels) {
