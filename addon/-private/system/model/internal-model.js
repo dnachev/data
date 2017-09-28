@@ -60,9 +60,16 @@ function extractPivotName(name) {
 
 function areAllModelsUnloaded(internalModels) {
   for (let i=0; i<internalModels.length; ++i) {
-    let record = internalModels[i]._record;
-    if (record && !(record.get('isDestroyed') || record.get('isDestroying'))) {
-      return false;
+    let records = internalModels[i]._record;
+    if (!records) {
+      continue;
+    }
+    let modelNames = Object.keys(records);
+    for (let i = 0; i < modelNames.length; i++) {
+      let record = records[modelNames[i]];
+      if (record && !(record.get('isDestroyed') || record.get('isDestroying'))) {
+        return false;
+      }
     }
   }
   return true;
@@ -328,7 +335,11 @@ export default class InternalModel {
     return this.currentState.dirtyType;
   }
 
-  getRecord(properties, modelName = this.modelName) {
+  getRecord(properties, modelName) {
+    if (modelName === null || modelName === undefined) {
+      // unspecified, use the internal model one
+      modelName = this.modelName;
+    }
     if (this._record && this._record[modelName]) {
       return this._record[modelName];
     }
@@ -416,10 +427,12 @@ export default class InternalModel {
 
   startedReloading() {
     this.isReloading = true;
+    this.applyToRecords((rec) => set(rec, 'isReloading', true));
   }
 
   finishedReloading() {
     this.isReloading = false;
+    this.applyToRecords((rec) => set(rec, 'isReloading', false));
   }
 
   reload() {
@@ -505,7 +518,7 @@ export default class InternalModel {
   unloadRecord(modelName) {
     // TODO Cases where we invoke unloadRecord without a DS.Model
     if (modelName) {
-      const record = this._record[modelName];
+      const record = this._record && this._record[modelName];
       if (record) {
         delete this._record[modelName];
         // TODO Do we need to send unloadRecord for the destroyed
@@ -823,7 +836,7 @@ export default class InternalModel {
     this.send('rolledBack');
 
     if (dirtyKeys && dirtyKeys.length > 0) {
-      this.dpplyToRecords((record) => record._notifyProperties(dirtyKeys));
+      this.applyToRecords((record) => record._notifyProperties(dirtyKeys));
     }
   }
 
@@ -901,7 +914,7 @@ export default class InternalModel {
   }
 
   triggerLater(...args) {
-    if (this._deferredTriggers.push(args) !== 1) {
+    if (this._deferredTriggers.push(args) - this._processedTriggers !== 1) {
       return;
     }
 
@@ -938,6 +951,7 @@ export default class InternalModel {
       trigger.apply(record, triggers[i]);
     }
     this._recordNextTrigger[modelName] = triggers.length;
+    this._processedTriggers = triggers.length;
   }
 
   /*

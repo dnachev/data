@@ -62,7 +62,6 @@ const {
   isPresent,
   MapWithDefault,
   run: emberRun,
-  set,
   RSVP,
   Service,
   typeOf
@@ -1635,14 +1634,14 @@ Store = Service.extend({
     assert(`You tried to load all records but your adapter does not implement 'findAll'`, typeof adapter.findAll === 'function');
 
     if (options.reload) {
-      set(array, 'isUpdating', true);
+      this.recordArrayManager._willUpdateAll(modelName);
       return promiseArray(_findAll(adapter, this, modelName, sinceToken, options));
     }
 
     let snapshotArray = array._createSnapshot(options);
 
     if (adapter.shouldReloadAll(this, snapshotArray)) {
-      set(array, 'isUpdating', true);
+      this.recordArrayManager._willUpdateAll(modelName);
       return promiseArray(_findAll(adapter, this, modelName, sinceToken, options));
     }
 
@@ -1651,7 +1650,7 @@ Store = Service.extend({
     }
 
     if (options.backgroundReload || adapter.shouldBackgroundReloadAll(this, snapshotArray)) {
-      set(array, 'isUpdating', true);
+      this.recordArrayManager._willUpdateAll(modelName);
       _findAll(adapter, this, modelName, sinceToken, options);
     }
 

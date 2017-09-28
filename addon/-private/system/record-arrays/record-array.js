@@ -66,7 +66,7 @@ export default Ember.ArrayProxy.extend(Ember.Evented, {
     @property isUpdating
     @type Boolean
     */
-    this.isUpdating = false;
+    this.isUpdating = this.isUpdating || false;
 
       /**
     The store that created this record array.
@@ -89,11 +89,11 @@ export default Ember.ArrayProxy.extend(Ember.Evented, {
    @property type
    @type DS.Model
    */
-  type: computed('recordModelName', function() {
-    if (!this.recordModelName) {
+  type: computed('modelName', function() {
+    if (!this.modelName) {
       return null;
     }
-    return this.store._modelFor(this.recordModelName);
+    return this.store._modelFor(this.modelName);
   }).readOnly(),
 
   /**
@@ -106,7 +106,7 @@ export default Ember.ArrayProxy.extend(Ember.Evented, {
   */
   objectAtContent(index) {
     let internalModel = get(this, 'content').objectAt(index);
-    return internalModel && internalModel.getRecord(null, this.recordModelName);
+    return internalModel && internalModel.getRecord(null, this.modelName);
   },
 
   /**
@@ -129,19 +129,7 @@ export default Ember.ArrayProxy.extend(Ember.Evented, {
     @method update
   */
   update() {
-    if (get(this, 'isUpdating')) { return this._updatingPromise; }
-
-    this.set('isUpdating', true);
-
-    let updatingPromise = this._update().finally(() => {
-      this._updatingPromise = null;
-      if (this.get('isDestroying') || this.get('isDestroyed')) { return }
-      this.set('isUpdating', false);
-    });
-
-    this._updatingPromise = updatingPromise;
-
-    return updatingPromise;
+    this.manager.updateRecordArray(this);
   },
 
   /*
@@ -150,7 +138,7 @@ export default Ember.ArrayProxy.extend(Ember.Evented, {
    */
   _update() {
     // TODO Not sure what to do with these?
-    return this.store.findAll(this.modelName, { reload: true });
+    return this.store.findAll(this.internalModelName, { reload: true });
   },
 
   /**

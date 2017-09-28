@@ -159,7 +159,7 @@ export default class BelongsToRelationship extends Relationship {
       }
 
       return PromiseObject.create({
-        promise: promise.then((internalModel) => internalModel.getRecord(null, modelName)),
+        promise: promise.then((internalModel) => internalModel ? internalModel.getRecord(null, modelName) : null),
         content: this.inverseInternalModel ? this.inverseInternalModel.getRecord(null, modelName) : null
       });
     } else {
@@ -186,7 +186,7 @@ export default class BelongsToRelationship extends Relationship {
     }
 
     return this.findRecord();
-   }
+  }
 
   updateData(data, initial) {
     assert(`Ember Data expected the data for the ${this.key} relationship on a ${this.internalModel.toString()} to be in a JSON API format and include an \`id\` and \`type\` property but it found ${Ember.inspect(data)}. Please check your serializer and make sure it is serializing the relationship payload into a JSON API format.`, data === null || data.id !== undefined && data.type !== undefined);

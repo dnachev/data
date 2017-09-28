@@ -123,6 +123,7 @@ export default class SnapshotRecordArray {
     @type {DS.Model}
   */
   get type() {
+    // TODO Fix the computation of type here
     return this._type || (this._type = this._recordArray.get('type'));
   }
 
