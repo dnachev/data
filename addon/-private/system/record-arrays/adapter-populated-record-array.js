@@ -7,7 +7,7 @@ import { associateWithRecordArray } from '../record-array-manager';
   @module ember-data
 */
 
-const { get } = Ember;
+const { get, set } = Ember;
 
 /**
   Represents an ordered list of records whose order and membership is
@@ -54,10 +54,28 @@ export default RecordArray.extend({
     this._super(...arguments);
     this.query = this.query || null;
     this.links = null;
+    // cannot override isUpdating for adapter populated arrays
+    this.isUpdating = false;
   },
 
   replace() {
     throw new Error(`The result of a server query (on ${this.modelName}) is immutable.`);
+  },
+
+  update() {
+    // TODO Reconcile with the normal record array update
+    if (get(this, 'isUpdating')) {
+      return this._updatingPromise;
+    }
+
+    set(this, 'isUpdating', true);
+
+    let updatingPromise = this._update().finally(() => {
+      this._updatingPromise = null;
+      set(this, 'isUpdating', false);
+    });
+
+    return this._updatingPromise = updatingPromise;
   },
 
   _update() {

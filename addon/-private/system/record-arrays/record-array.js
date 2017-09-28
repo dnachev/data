@@ -66,7 +66,7 @@ export default Ember.ArrayProxy.extend(Ember.Evented, {
     @property isUpdating
     @type Boolean
     */
-    this.isUpdating = false;
+    this.isUpdating = this.isUpdating || false;
 
       /**
     The store that created this record array.
@@ -106,7 +106,7 @@ export default Ember.ArrayProxy.extend(Ember.Evented, {
   */
   objectAtContent(index) {
     let internalModel = get(this, 'content').objectAt(index);
-    return internalModel && internalModel.getRecord();
+    return internalModel && internalModel.getRecord(null, this.modelName);
   },
 
   /**
@@ -129,19 +129,7 @@ export default Ember.ArrayProxy.extend(Ember.Evented, {
     @method update
   */
   update() {
-    if (get(this, 'isUpdating')) { return this._updatingPromise; }
-
-    this.set('isUpdating', true);
-
-    let updatingPromise = this._update().finally(() => {
-      this._updatingPromise = null;
-      if (this.get('isDestroying') || this.get('isDestroyed')) { return }
-      this.set('isUpdating', false);
-    });
-
-    this._updatingPromise = updatingPromise;
-
-    return updatingPromise;
+    this.manager.updateRecordArray(this);
   },
 
   /*
@@ -149,7 +137,8 @@ export default Ember.ArrayProxy.extend(Ember.Evented, {
     is finished.
    */
   _update() {
-    return this.store.findAll(this.modelName, { reload: true });
+    // TODO Not sure what to do with these?
+    return this.store.findAll(this.internalModelName, { reload: true });
   },
 
   /**
@@ -194,7 +183,7 @@ export default Ember.ArrayProxy.extend(Ember.Evented, {
     @return {DS.PromiseArray} promise
   */
   save() {
-    let promiseLabel = `DS: RecordArray#save ${this.modelName}`;
+    let promiseLabel = `DS: RecordArray#save ${this.internalModelName}`;
     let promise = Promise.all(this.invoke('save'), promiseLabel)
       .then(() => this, null, 'DS: RecordArray#save return RecordArray');
 

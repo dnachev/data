@@ -123,7 +123,7 @@ test('destroying the store correctly cleans everything up', function(assert) {
 
   assert.equal(internalPersonModel._recordArrays.size, 1, 'expected the person to be a member of 1 recordArrays');
   assert.equal(allSummary.called.length, 1);
-  assert.equal('person' in manager._liveRecordArrays, false);
+  assert.equal(Object.keys(manager._liveRecordArrays.person).length, 0);
 
   Ember.run(manager, manager.destroy);
 
@@ -292,7 +292,7 @@ test('#GH-4041 store#query AdapterPopulatedRecordArrays are removed from their m
 });
 
 test('createRecordArray', function(assert) {
-  let recordArray = manager.createRecordArray('foo');
+  let recordArray = manager.createRecordArray('foo', 'foo');
 
   assert.equal(recordArray.modelName, 'foo');
   assert.equal(recordArray.isLoaded, true);
@@ -310,7 +310,7 @@ test('createRecordArray \w optional content', function(assert) {
     }
   };
   let content = Ember.A([internalModel]);
-  let recordArray = manager.createRecordArray('foo', content);
+  let recordArray = manager.createRecordArray('foo', 'foo', content);
 
   assert.equal(recordArray.modelName, 'foo');
   assert.equal(recordArray.isLoaded, true);
@@ -326,13 +326,14 @@ test('liveRecordArrayFor always return the same array for a given type', functio
 });
 
 test('liveRecordArrayFor create with content', function(assert) {
-  assert.expect(6);
+  assert.expect(7);
 
   let createRecordArrayCalled = 0;
   let superCreateRecordArray = manager.createRecordArray;
 
-  manager.createRecordArray = function(modelName, internalModels) {
+  manager.createRecordArray = function(internalModelName, modelName, internalModels) {
     createRecordArrayCalled++;
+    assert.equal(internalModelName, 'car');
     assert.equal(modelName, 'car');
     assert.equal(internalModels.length, 1);
     assert.equal(internalModels[0].id, 1);
