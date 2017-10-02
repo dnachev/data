@@ -629,7 +629,7 @@ const Model = EmberObject.extend(Evented, {
   */
   unloadRecord() {
     if (this.isDestroyed) { return; }
-    this._internalModel.unloadRecord();
+    this._internalModel.unloadRecord(this);
   },
 
   /**
