@@ -77,6 +77,7 @@ function destroyRelationship(rel) {
     rel.removeCompletelyFromInverse();
   }
 }
+
 // this (and all heimdall instrumentation) will be stripped by a babel transform
 //  https://github.com/heimdalljs/babel5-plugin-strip-heimdall
 const {
@@ -629,17 +630,33 @@ export default class InternalModel {
     heimdall.increment(setupData);
     this.store._internalModelDidReceiveRelationshipData(this.modelName, this.id, data.relationships);
 
-    let changedKeys;
-
-    if (this.hasRecord) {
-      changedKeys = this._changedKeys(data.attributes);
-    }
-
-    emberAssign(this._data, data.attributes);
+    let changedKeys = this._assignAttributes(data.attributes);
     this.pushedData();
 
     if (this.hasRecord) {
       this.applyToRecords((record) => record._notifyProperties(changedKeys));
+    }
+  }
+
+  _assignAttributes(newAttributes, policy) {
+    let changedKeys;
+    if (!newAttributes) {
+      return [];
+    }
+    switch (policy) {
+      case 'replace':
+        if (this.hasRecord) {
+          changedKeys = this._changedKeys(newAttributes, true);
+        }
+        this._data = newAttributes;
+        return changedKeys;
+      case 'merge':
+      default:
+        if (this.hasRecord) {
+          changedKeys = this._changedKeys(newAttributes, false);
+        }
+        emberAssign(this._data, newAttributes);
+        return changedKeys;
     }
   }
 
@@ -1139,7 +1156,7 @@ export default class InternalModel {
 
     @method adapterDidCommit
   */
-  adapterDidCommit(data) {
+  adapterDidCommit(data, options) {
     if (data) {
       this.store._internalModelDidReceiveRelationshipData(this.modelName, this.id, data.relationships);
 
@@ -1147,14 +1164,13 @@ export default class InternalModel {
     }
 
     this.didCleanError();
-    let changedKeys = this._changedKeys(data);
 
+    // inflight attributes don't need a merge policy as they simply commit changes, which
+    // were done previously
     emberAssign(this._data, this._inFlightAttributes);
-    if (data) {
-      emberAssign(this._data, data);
-    }
-
     this._inFlightAttributes = null;
+
+    let changedKeys = this._assignAttributes(data);
 
     this.send('didCommit');
     this.updateRecordArrays();
@@ -1266,37 +1282,45 @@ export default class InternalModel {
     @method _changedKeys
     @private
   */
-  _changedKeys(updates) {
+  _changedKeys(updates, includeRemovals) {
     let changedKeys = [];
 
-    if (updates) {
-      let original, i, value, key;
-      let keys = Object.keys(updates);
-      let length = keys.length;
-      let hasAttrs = this.hasChangedAttributes();
-      let attrs;
-      if (hasAttrs) {
-        attrs= this._attributes;
+    if (!updates) {
+      return changedKeys;
+    }
+
+    let original = emberAssign(Object.create(null), this._data);
+    original = emberAssign(original, this._inFlightAttributes);
+
+    let keys;
+    if (includeRemovals) {
+      let allProperties = emberAssign(Object.create(null), original, updates);
+      keys = Object.keys(allProperties);
+    } else {
+      keys = Object.keys(updates);
+    }
+
+    let length = keys.length;
+    let attrs;
+    let hasAttrs = this.hasChangedAttributes();
+    if (this.hasChangedAttributes()) {
+      attrs = this._attributes;
+    }
+
+    for (let i = 0; i < length; i++) {
+      let key = keys[i];
+      let value = updates[key];
+
+      // A value in _attributes means the user has a local change to
+      // this attributes. We never override this value when merging
+      // updates from the backend so we should not sent a change
+      // notification if the server value differs from the original.
+      if (hasAttrs === true && attrs[key] !== undefined) {
+        continue;
       }
 
-      original = emberAssign(Object.create(null), this._data);
-      original = emberAssign(original, this._inFlightAttributes);
-
-      for (i = 0; i < length; i++) {
-        key = keys[i];
-        value = updates[key];
-
-        // A value in _attributes means the user has a local change to
-        // this attributes. We never override this value when merging
-        // updates from the backend so we should not sent a change
-        // notification if the server value differs from the original.
-        if (hasAttrs === true && attrs[key] !== undefined) {
-          continue;
-        }
-
-        if (!isEqual(original[key], value)) {
-          changedKeys.push(key);
-        }
+      if (!isEqual(original[key], value)) {
+        changedKeys.push(key);
       }
     }
 
