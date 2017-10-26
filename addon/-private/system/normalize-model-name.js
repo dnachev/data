@@ -14,5 +14,7 @@ import { dasherize } from '@ember/string';
   @for DS
 */
 export default function normalizeModelName(modelName) {
-  return dasherize(modelName);
+  // return dasherize(modelName);
+  // TODO Temporary disable normalization
+  return modelName;
 }

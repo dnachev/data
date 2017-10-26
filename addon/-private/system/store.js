@@ -66,8 +66,8 @@ const { Promise } = RSVP;
 //Get the materialized model from the internalModel/promise that returns
 //an internal model and return it in a promiseObject. Useful for returning
 //from find methods
-function promiseRecord(internalModelPromise, label) {
-  let toReturn = internalModelPromise.then(internalModel => internalModel.getRecord());
+function promiseRecord(internalModelPromise, modelName, label) {
+  let toReturn = internalModelPromise.then(internalModel => internalModel.getRecord(null, modelName));
 
   return promiseObject(toReturn, label);
 }
@@ -700,7 +700,7 @@ Store = Service.extend({
 
     let fetchedInternalModel = this._findRecord(internalModel, options);
 
-    return promiseRecord(fetchedInternalModel, `DS: Store#findRecord ${normalizedModelName} with id: ${id}`);
+    return promiseRecord(fetchedInternalModel, `DS: Store#findRecord ${normalizedModelName} with id: ${id}`, modelName);
   },
 
   _findRecord(internalModel, options) {
@@ -736,8 +736,9 @@ Store = Service.extend({
     }
 
     let fetchedInternalModel = this._findEmptyInternalModel(internalModel, options);
+    let modelName = options & options.modelName;
 
-    return promiseRecord(fetchedInternalModel, `DS: Store#findRecord ${internalModel.modelName} with id: ${internalModel.id}`);
+    return promiseRecord(fetchedInternalModel, `DS: Store#findRecord ${internalModel.modelName} with id: ${internalModel.id}`, modelName);
   },
 
   _findEmptyInternalModel(internalModel, options) {
@@ -1038,7 +1039,7 @@ Store = Service.extend({
     let normalizedModelName = normalizeModelName(modelName);
 
     if (this.hasRecordForId(normalizedModelName, id)) {
-      return this._internalModelForId(normalizedModelName, id).getRecord();
+      return this._internalModelForId(normalizedModelName, id).getRecord(null, modelName);
     } else {
       return null;
     }
@@ -1112,7 +1113,7 @@ Store = Service.extend({
     assert(`You need to pass a model name to the store's recordForId method`, isPresent(modelName));
     assert(`Passing classes to store methods has been removed. Please pass a dasherized string instead of ${modelName}`, typeof modelName === 'string');
 
-    return this._internalModelForId(modelName, id).getRecord();
+    return this._internalModelForId(modelName, id).getRecord(null, modelName);
   },
 
   _internalModelForId(modelName, id) {

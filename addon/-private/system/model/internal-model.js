@@ -349,6 +349,8 @@ export default class InternalModel {
     // instances with the injections applied
     let createOptions = {
       store: this.store,
+      // TODO Required in order to pass the actual model, which must be instantiated
+      _modelName: modelName,
       _internalModel: this,
       id: this.id,
       currentState: this.currentState,

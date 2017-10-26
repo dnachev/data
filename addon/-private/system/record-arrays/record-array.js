@@ -108,7 +108,7 @@ export default ArrayProxy.extend(Evented, {
   */
   objectAtContent(index) {
     let internalModel = get(this, 'content').objectAt(index);
-    return internalModel && internalModel.getRecord();
+    return internalModel && internalModel.getRecord(null, this.modelName);
   },
 
   /**
